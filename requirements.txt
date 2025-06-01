@@ -1,0 +1,37 @@
+# requirements.txt
+
+# Core Qt and Async
+PySide6
+qasync
+
+# LLM SDKs
+google-generativeai
+openai
+ollama
+
+# Environment & Config
+python-dotenv
+
+# UI and Styling
+Pygments
+Markdown
+qtawesome
+
+# Vector DB and RAG
+chromadb
+sentence-transformers
+# langchain-text-splitters # Optional, but used in UploadService if available. Add if you want to ensure it's used.
+
+# Document Parsing (for RAG)
+pypdf
+# mammoth # For .docx, if you plan to support it directly in FileHandlerService
+
+# Numerics (often a dependency for ML/AI libs)
+numpy
+
+# Optional, but good for development:
+# autopep8
+# flake8
+# mypy
+# pytest
+# coverage

@@ -1,0 +1,176 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a CI, but they should be ignored
+#  by default.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# PEP 582; __pypackages__
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath files
+*.sage.py
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Ruff
+.ruff_cache/
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-workspace
+
+# PyCharm
+.idea/
+*.iws
+*.iml
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Atom
+.atom/
+
+# Eclipse
+.project
+.pydevproject
+.settings/
+
+# Spyder
+.spyderproject
+.spyproject
+
+# Qt / PySide / PyQt
+# Qt Creator files
+*.pro.user
+*.pro.user.*
+# moc intermediate files
+moc_*.cpp
+moc_*.h
+# uic intermediate files
+ui_*.h
+# qrc intermediate files
+qrc_*.cpp
+
+# User Data (specific to your application, if any outside the main repo)
+# Example: if .ava_pys6_data_p1 was accidentally created in the repo root
+.ava_pys6_data_p1/
+
+# Log files (if generated in the project directory)
+*.log
+logs/
+*.log.*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# Compiled outputs from other languages (if any)
+*.o
+*.so
+*.dll
+*.exe
+*.out
+
+# Specific to this project if any other temp/build dirs are created
+# For example, if you have a custom build script outputting to `_build`
+# _build/
+
+# Node.js (if you ever use frontend tools alongside)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Sensitive files (double check these are not needed in repo)
+# secrets.json
+# config.ini # If it contains sensitive data and isn't a template
+# *.pem
+# *.key
