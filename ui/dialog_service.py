@@ -8,18 +8,18 @@ from PySide6.QtWidgets import QWidget, QDialog, QMessageBox  # QDialog for type 
 try:
     from core.event_bus import EventBus
     # ChatManager is needed to get context for some dialogs (e.g., current personality)
-    from app.core.chat_manager import ChatManager  # Corrected path
+    from core.chat_manager import ChatManager  # Corrected path
 
     # Import specific dialogs from their new potential location (e.g., app/ui/dialogs/)
     # Assuming a new subdirectory 'dialogs' within 'app/ui/'
-    from app.ui.dialogs.llm_terminal_window import LlmTerminalWindow
-    from app.ui.dialogs.personality_dialog import EditPersonalityDialog
-    from app.ui.dialogs.code_viewer_dialog import CodeViewerWindow  # This is your existing one
-    from app.ui.dialogs.project_rag_dialog import ProjectRagDialog
-    from app.ui.dialogs.update_dialog import UpdateDialog
+    from ui.dialogs.llm_terminal_window import LlmTerminalWindow
+    from ui.dialogs.personality_dialog import EditPersonalityDialog
+    from ui.dialogs.code_viewer_dialog import CodeViewerWindow  # This is your existing one
+    from ui.dialogs.project_rag_dialog import ProjectRagDialog
+    from ui.dialogs.update_dialog import UpdateDialog
 
     # For UpdateInfo type hint if UpdateService is not directly used here
-    from app.services.update_service import UpdateInfo
+    from services.update_service import UpdateInfo
     from utils import constants
 except ImportError as e_ds:
     logging.getLogger(__name__).critical(f"DialogService: Critical import error: {e_ds}", exc_info=True)
@@ -208,13 +208,13 @@ class DialogService(QObject):
         logger.debug("DialogService: Request to show Project RAG File Add dialog.")
         project_manager = self.chat_manager.get_project_manager()
         if not project_manager:
-            QMessageBox.critical(self.parent_window, "Error", "Project manager service is not available.");
+            QMessageBox.critical(self.parent_window, "Error", "Project manager service is not available.")
             return
 
         current_project = project_manager.get_current_project()
         if not current_project:
             QMessageBox.information(self.parent_window, "No Active Project",
-                                    "Please select or create a project first.");
+                                    "Please select or create a project first.")
             return
         try:
             # Create a new instance each time for modal dialogs, or manage visibility if non-modal

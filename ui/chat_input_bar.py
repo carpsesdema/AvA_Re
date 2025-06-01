@@ -3,8 +3,8 @@ import logging
 import os
 from typing import Optional, List, Dict, Any  # Added List, Dict, Any for potential image data
 
-from PySide6.QtCore import QSize, Slot, QTimer, Signal as pyqtSignal, Qt  # Added Qt for KeyPressEvent
-from PySide6.QtGui import QFont, QIcon, QKeyEvent  # Added QKeyEvent
+from PySide6.QtCore import QSize, Slot, QTimer, Signal as pyqtSignal  # Added Qt for KeyPressEvent
+from PySide6.QtGui import QFont, QIcon  # Added QKeyEvent
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QPushButton, QSizePolicy
 )

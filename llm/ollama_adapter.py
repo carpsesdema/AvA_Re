@@ -28,7 +28,7 @@ except ImportError:
 
 try:
     from .backend_interface import BackendInterface
-    from app.models.chat_message import ChatMessage, MODEL_ROLE, USER_ROLE, SYSTEM_ROLE, ERROR_ROLE
+    from models.chat_message import ChatMessage, MODEL_ROLE, USER_ROLE, SYSTEM_ROLE, ERROR_ROLE
     # Import the new stream handler
     from .ollama_stream_handler import OllamaStreamHandler, OllamaStreamTimeoutError
 except ImportError as e_imp:

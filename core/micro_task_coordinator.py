@@ -3,37 +3,39 @@ import asyncio
 import logging
 import os
 import uuid
-import re  # For parsing LLM responses
+import re
 from typing import List, Optional, Dict, Any, Set, Tuple
 from dataclasses import dataclass, field
 from enum import Enum, auto
-import ast  # For safely evaluating list strings from LLM
+import ast
 
 from PySide6.QtCore import QObject, Slot
 
 try:
     from core.event_bus import EventBus
-    # Corrected paths for models and services
     from models.chat_message import ChatMessage, USER_ROLE, MODEL_ROLE, SYSTEM_ROLE, ERROR_ROLE
     from models.message_enums import MessageLoadingState
     from llm.backend_coordinator import BackendCoordinator
     from services.llm_communication_logger import LlmCommunicationLogger
     from core.code_output_processor import CodeOutputProcessor, CodeQualityLevel
+    from core.python_code_assembler import PythonCodeAssembler
+    from core.dependency_resolver import DependencyResolver
     from utils import constants
-    # Assuming prompts will be in their own module, e.g., app.llm.prompts
     from app.llm import prompts as llm_prompts
 except ImportError as e_mtc:
     logging.getLogger(__name__).critical(f"MicroTaskCoordinator: Critical import error: {e_mtc}", exc_info=True)
     # Fallback types
     EventBus = type("EventBus", (object,), {})
-    ChatMessage = type("ChatMessage", (object,), {})  # type: ignore
-    MessageLoadingState = type("MessageLoadingState", (object,), {})  # type: ignore
+    ChatMessage = type("ChatMessage", (object,), {})
+    MessageLoadingState = type("MessageLoadingState", (object,), {})
     BackendCoordinator = type("BackendCoordinator", (object,), {})
-    LlmCommunicationLogger = type("LlmCommunicationLogger", (object,), {})  # type: ignore
-    CodeOutputProcessor = type("CodeOutputProcessor", (object,), {})  # type: ignore
-    CodeQualityLevel = type("CodeQualityLevel", (object,), {})  # type: ignore
-    constants = type("constants", (object,), {})  # type: ignore
-    llm_prompts = type("llm_prompts", (object,), {})  # type: ignore
+    LlmCommunicationLogger = type("LlmCommunicationLogger", (object,), {})
+    CodeOutputProcessor = type("CodeOutputProcessor", (object,), {})
+    CodeQualityLevel = type("CodeQualityLevel", (object,), {})
+    PythonCodeAssembler = type("PythonCodeAssembler", (object,), {})
+    DependencyResolver = type("DependencyResolver", (object,), {})
+    constants = type("constants", (object,), {})
+    llm_prompts = type("llm_prompts", (object,), {})
     USER_ROLE, MODEL_ROLE, SYSTEM_ROLE, ERROR_ROLE = "user", "model", "system", "error"
     raise
 
@@ -42,90 +44,106 @@ logger = logging.getLogger(__name__)
 
 class MicroTaskPhase(Enum):
     IDLE = auto()
-    INITIAL_DECOMPOSITION = auto()  # Planning model breaks down the main task
-    FUNCTION_SPEC_VALIDATION = auto()  # Optional: LLM/User validates function specs
-    FUNCTION_GENERATION = auto()  # Coding model generates individual functions
-    FUNCTION_REVIEW_AND_RETRY = auto()  # Planning model reviews, requests fixes if needed
-    ADAPTIVE_PLANNING = auto()  # Planning model adjusts plan based on generation progress/issues
-    CODE_ASSEMBLY = auto()  # Assembling generated functions into files
-    FINAL_VALIDATION = auto()  # Validating assembled files
+    INITIAL_DECOMPOSITION = auto()
+    ATOMIC_TASK_GENERATION = auto()
+    DEPENDENCY_ANALYSIS = auto()
+    INTELLIGENT_ASSEMBLY = auto()
+    INTEGRATION_GUIDANCE = auto()
+    FINAL_VALIDATION = auto()
     COMPLETED = auto()
     ERROR = auto()
 
 
 @dataclass
-class FunctionSpecification:
-    """Detailed specification for a single function to be generated."""
-    id: str = field(default_factory=lambda: f"func_spec_{uuid.uuid4().hex[:8]}")
-    function_name: str
-    description: str  # Detailed purpose and logic
-    parameters: List[Dict[str, str]]  # e.g., [{"name": "param1", "type": "int", "description": "..."}]
-    return_type: str
-    dependencies: List[str] = field(default_factory=list)  # Names of other functions this one depends on
-    file_target: Optional[str] = None  # Suggested filename or module
-    complexity_score: int = 1  # Estimated complexity (e.g., 1-5)
-    priority: int = 1  # Generation priority
+class AtomicTask:
+    """Represents a single, focused coding task - smaller than functions"""
+    # Required fields (no defaults)
+    task_type: str  # "function", "method", "class_def", "import", "constant", "property"
+    name: str  # Function/method/class name
+    description: str
 
-    # Generation State
+    # Optional fields (with defaults)
+    id: str = field(default_factory=lambda: f"atomic_{uuid.uuid4().hex[:8]}")
+    parent_context: Optional[str] = None  # Parent class if it's a method
+    target_file: str = ""
+
+    # Code generation details
+    signature: Optional[str] = None  # Function signature or class definition
+    docstring_requirements: str = ""
+    dependencies: List[str] = field(default_factory=list)  # Other atomic tasks this depends on
+    estimated_complexity: int = 1  # 1-5 scale
+
+    # Generation state
     generated_code: Optional[str] = None
     validation_errors: List[str] = field(default_factory=list)
-    review_feedback: Optional[str] = None  # Feedback from planning model
     generation_attempts: int = 0
-    status: MicroTaskPhase = MicroTaskPhase.IDLE  # Tracks this specific function's generation status
+    status: MicroTaskPhase = MicroTaskPhase.IDLE
+    request_id: Optional[str] = None
 
 
 @dataclass
-class FileAssemblyInfo:
-    """Tracks the assembly of functions into a complete file."""
+class FileAssemblyPlan:
+    """Detailed plan for assembling atomic tasks into a complete file"""
     filename: str
-    target_function_names: List[str]  # Names of functions intended for this file
-    generated_functions: Dict[str, str] = field(default_factory=dict)  # name -> code
-    imports_needed: Set[str] = field(default_factory=set)
-    class_definitions: Dict[str, str] = field(default_factory=dict)  # class_name -> class_scaffold_code
-    assembled_code: Optional[str] = None
-    is_complete: bool = False
+    module_purpose: str
+    atomic_tasks: List[AtomicTask] = field(default_factory=list)
+
+    # File structure elements
+    required_imports: Set[str] = field(default_factory=set)
+    constants: List[AtomicTask] = field(default_factory=list)
+    classes: Dict[str, List[AtomicTask]] = field(default_factory=dict)  # class_name -> methods
+    standalone_functions: List[AtomicTask] = field(default_factory=list)
+
+    # Assembly state
+    integration_requirements: List[str] = field(default_factory=list)
+    assembly_complete: bool = False
+    final_code: Optional[str] = None
 
 
 class MicroTaskCoordinator(QObject):
     """
-    Coordinates the generation of code through micro-tasks.
-    A planning LLM oversees the process, decomposing tasks and reviewing generated functions.
-    A coding LLM generates individual functions, allowing for rapid iteration and quality control.
+    Enhanced coordinator for atomic-level code generation with intelligent assembly
     """
 
-    MAX_GENERATION_ATTEMPTS_PER_FUNCTION = 3
+    MAX_GENERATION_ATTEMPTS_PER_TASK = 3
 
     def __init__(self,
                  backend_coordinator: BackendCoordinator,
                  event_bus: EventBus,
-                 llm_comm_logger: Optional[LlmCommunicationLogger],  # type: ignore
+                 llm_comm_logger: Optional[LlmCommunicationLogger],
                  parent: Optional[QObject] = None):
         super().__init__(parent)
 
-        if not isinstance(backend_coordinator, BackendCoordinator):  # type: ignore
+        if not isinstance(backend_coordinator, BackendCoordinator):
             raise TypeError("MicroTaskCoordinator requires a valid BackendCoordinator.")
-        if not isinstance(event_bus, EventBus):  # type: ignore
+        if not isinstance(event_bus, EventBus):
             raise TypeError("MicroTaskCoordinator requires a valid EventBus.")
 
         self._backend_coordinator = backend_coordinator
         self._event_bus = event_bus
         self._llm_comm_logger = llm_comm_logger
-        self._code_processor = CodeOutputProcessor()  # type: ignore
+        self._code_processor = CodeOutputProcessor()
+        self._assembler = PythonCodeAssembler(backend_coordinator, event_bus)
+        self._dependency_resolver = DependencyResolver()
 
-        # Sequence State
+        # Enhanced sequence state
         self._current_phase = MicroTaskPhase.IDLE
         self._sequence_id: Optional[str] = None
         self._original_query: Optional[str] = None
-        self._project_context: Dict[str, Any] = {}  # project_dir, project_id, session_id, etc.
+        self._project_context: Dict[str, Any] = {}
 
-        # Micro-task specific state
-        self._function_specs_list: List[FunctionSpecification] = []
-        self._file_assembly_map: Dict[str, FileAssemblyInfo] = {}  # filename -> FileAssemblyInfo
-        self._current_spec_index_being_processed: int = 0
-        self._active_llm_request_id: Optional[str] = None  # Tracks requests made by this coordinator
+        # Atomic task management
+        self._atomic_tasks: List[AtomicTask] = []
+        self._file_assembly_plans: Dict[str, FileAssemblyPlan] = {}
+        self._current_task_index: int = 0
+        self._active_llm_request_id: Optional[str] = None
+
+        # Generation tracking
+        self._tasks_completed: int = 0
+        self._total_tasks_planned: int = 0
 
         self._connect_event_bus_handlers()
-        logger.info("MicroTaskCoordinator initialized.")
+        logger.info("Enhanced MicroTaskCoordinator initialized with intelligent assembly.")
 
     def _connect_event_bus_handlers(self):
         self._event_bus.llmResponseCompleted.connect(self._handle_llm_completion)
@@ -140,10 +158,9 @@ class MicroTaskCoordinator(QObject):
                                     project_dir: str,
                                     project_id: Optional[str] = None,
                                     session_id: Optional[str] = None) -> bool:
-        """Starts the micro-task generation sequence."""
+        """Starts the enhanced micro-task generation sequence"""
         if self._current_phase != MicroTaskPhase.IDLE:
-            logger.warning(
-                f"MTC: Sequence '{self._sequence_id}' already active in phase {self._current_phase.name}. Ignoring new request.")
+            logger.warning(f"MTC: Sequence already active. Ignoring new request.")
             self._emit_status_update("Micro-task generation already in progress.", "#e5c07b", True, 3000)
             return False
 
@@ -151,557 +168,539 @@ class MicroTaskCoordinator(QObject):
         self._sequence_id = f"mtc_seq_{uuid.uuid4().hex[:8]}"
         self._original_query = user_query
         self._project_context = {
-            'project_dir': project_dir, 'project_id': project_id, 'session_id': session_id,
-            'planning_backend': planning_backend, 'planning_model': planning_model,
-            'coding_backend': coding_backend, 'coding_model': coding_model
+            'project_dir': project_dir,
+            'project_id': project_id,
+            'session_id': session_id,
+            'planning_backend': planning_backend,
+            'planning_model': planning_model,
+            'coding_backend': coding_backend,
+            'coding_model': coding_model
         }
 
-        logger.info(f"MTC ({self._sequence_id}): Starting sequence for query: '{user_query[:50]}...'")
-        self._log_communication("SEQ_START", f"Query: {user_query[:100]}...")
+        logger.info(f"MTC ({self._sequence_id}): Starting enhanced sequence for: '{user_query[:50]}...'")
         self._emit_chat_message_to_ui(
-            f"[System: Starting micro-task generation for '{user_query[:40]}...'. Decomposing task...]")
+            f"[System: Starting intelligent micro-task generation for '{user_query[:40]}...']"
+            f"\n🧠 **Phase 1**: AI Architect planning atomic tasks..."
+        )
         self._event_bus.uiInputBarBusyStateChanged.emit(True)
 
         self._current_phase = MicroTaskPhase.INITIAL_DECOMPOSITION
-        asyncio.create_task(self._request_initial_task_decomposition())
+        asyncio.create_task(self._request_atomic_task_decomposition())
         return True
 
-    async def _request_initial_task_decomposition(self):
-        """Asks the planning LLM to break down the user's query into function specifications."""
-        if not self._original_query or not self._sequence_id or not self._backend_coordinator: return
+    async def _request_atomic_task_decomposition(self):
+        """Enhanced decomposition into atomic-level tasks"""
+        if not self._original_query or not self._sequence_id: return
 
         self._active_llm_request_id = f"mtc_decompose_{self._sequence_id}"
-        self._emit_status_update(f"Decomposing task with {self._project_context['planning_model']}...", "#61afef",
-                                 False)
+        self._emit_status_update(f"🧠 AI Architect breaking down task into atomic components...", "#61afef", False)
 
-        # TODO: Use a well-defined prompt from llm_prompts for decomposition
-        decomposition_prompt = (
-            f"You are an expert software architect. Decompose the following user request into a list of precise Python function specifications. "
-            f"For each function, provide: name, detailed description/purpose, parameters (name, type, description), return type, and any direct function dependencies (by name) from this list.\n"
-            f"User Request: \"{self._original_query}\"\n\n"
-            f"Output Format (Strictly follow, use JSON-like list of objects if possible, or very clear structured text):\n"
-            f"FUNCTION_SPECS_START\n"
-            f"Function: [function_name_1]\n"
-            f"Description: [Detailed purpose and logic for function_name_1]\n"
-            f"Parameters: (param1: type, # description; param2: type, # description)\n"  # Or list of dicts
-            f"ReturnType: [return_type_1]\n"
-            f"Dependencies: [function_name_x, function_name_y]\n"
-            f"FileTarget: [optional_suggested_filename.py]\n"  # Added FileTarget
-            f"---\n"
-            f"Function: [function_name_2]\n"
-            f"...\n"
-            f"FUNCTION_SPECS_END"
-        )
-        history = [ChatMessage(role=USER_ROLE, parts=[decomposition_prompt])]  # type: ignore
+        # Enhanced prompt for atomic-level decomposition
+        decomposition_prompt = self._build_atomic_decomposition_prompt()
+        history = [ChatMessage(role=USER_ROLE, parts=[decomposition_prompt])]
 
         self._backend_coordinator.start_llm_streaming_task(
             request_id=self._active_llm_request_id,
             target_backend_id=self._project_context['planning_backend'],
             history_to_send=history,
             is_modification_response_expected=True,
-            options={"temperature": 0.2},  # Low temp for structured output
+            options={"temperature": 0.1},  # Very low for precise decomposition
             request_metadata={
-                "purpose": "microtask_decomposition", "sequence_id": self._sequence_id,
+                "purpose": "atomic_task_decomposition",
+                "sequence_id": self._sequence_id,
                 "project_id": self._project_context.get('project_id'),
                 "session_id": self._project_context.get('session_id')
             }
         )
 
-    @Slot(str, ChatMessage, dict)  # type: ignore
-    def _handle_llm_completion(self, request_id: str, message: ChatMessage, metadata: dict):  # type: ignore
-        if not self._sequence_id or metadata.get(
-                "sequence_id") != self._sequence_id or self._active_llm_request_id != request_id:
-            return  # Not for current MTC sequence or not the expected request
+    def _build_atomic_decomposition_prompt(self) -> str:
+        """Builds the enhanced prompt for atomic-level task decomposition"""
+        return f"""You are an expert Python architect. Break down this request into ATOMIC coding tasks.
 
-        purpose = metadata.get("purpose")
-        logger.info(f"MTC ({self._sequence_id}): LLM completion for ReqID '{request_id}', Purpose: '{purpose}'")
-        self._active_llm_request_id = None  # Clear active request ID
+**User Request**: {self._original_query}
 
-        if purpose == "microtask_decomposition":
-            self._process_initial_decomposition_response(message.text)  # type: ignore
-        elif purpose == "microtask_function_generation":
-            spec_id = metadata.get("function_spec_id")
-            self._process_generated_function_code(spec_id, message.text)  # type: ignore
-        elif purpose == "microtask_function_review":
-            spec_id = metadata.get("function_spec_id")
-            self._process_function_review_response(spec_id, message.text)  # type: ignore
-        elif purpose == "microtask_adaptive_planning":
-            self._process_adaptive_planning_response(message.text)  # type: ignore
-        elif purpose == "microtask_code_assembly":
-            filename = metadata.get("filename")
-            self._process_assembled_code_response(filename, message.text)  # type: ignore
+**ATOMIC TASK BREAKDOWN REQUIRED**:
+Each atomic task should be:
+- A single function, method, class definition, or code unit
+- Implementable in 10-50 lines of code
+- Testable in isolation
+- Have clear inputs and outputs
 
-    def _process_initial_decomposition_response(self, llm_response_text: str):
-        try:
-            self._function_specs_list = self._parse_function_specs_from_llm(llm_response_text)
-            if not self._function_specs_list:
-                raise ValueError("LLM decomposition response did not yield any function specifications.")
+**OUTPUT FORMAT** (JSON-like structure):
+```
+FILES_TO_CREATE: ["file1.py", "file2.py"]
 
-            self._total_functions_planned = len(self._function_specs_list)
-            self._functions_generated = 0
-            logger.info(
-                f"MTC ({self._sequence_id}): Successfully decomposed task into {self._total_functions_planned} function specs.")
-            self._emit_chat_message_to_ui(
-                f"[System: Task decomposed into {self._total_functions_planned} micro-tasks (functions). Starting generation...]")
+### file1.py
+PURPOSE: Brief description of file's role
+MODULE_DOCSTRING: What this module does
 
-            # Prepare file assemblies based on FileTarget in specs
-            self._prepare_file_assemblies()
+ATOMIC_TASKS:
+[
+  {{
+    "task_type": "class_def",
+    "name": "ClassName", 
+    "description": "What this class does",
+    "parent_context": null,
+    "signature": "class ClassName:",
+    "docstring_requirements": "What the class docstring should cover",
+    "dependencies": [],
+    "estimated_complexity": 2
+  }},
+  {{
+    "task_type": "method",
+    "name": "__init__",
+    "description": "Initialize the class",
+    "parent_context": "ClassName",
+    "signature": "def __init__(self, param1: str, param2: int)",
+    "docstring_requirements": "Document parameters and purpose",
+    "dependencies": [],
+    "estimated_complexity": 1
+  }},
+  {{
+    "task_type": "function",
+    "name": "helper_function",
+    "description": "Utility function for X",
+    "parent_context": null,
+    "signature": "def helper_function(data: List[str]) -> Dict[str, Any]",
+    "docstring_requirements": "Document args, returns, raises",
+    "dependencies": ["ClassName"],
+    "estimated_complexity": 3
+  }}
+]
+```
 
-            self._current_spec_index_being_processed = 0
-            self._current_phase = MicroTaskPhase.FUNCTION_GENERATION
-            asyncio.create_task(self._process_next_function_spec())
+Focus on professional Python patterns. Be specific about signatures and dependencies."""
 
-        except ValueError as e_parse:
-            logger.error(
-                f"MTC ({self._sequence_id}): Failed to parse decomposition response: {e_parse}\nResponse:\n{llm_response_text[:500]}",
-                exc_info=True)
-            self._emit_chat_message_to_ui(
-                f"[System Error: Could not understand the task decomposition from AI. Error: {e_parse}]", is_error=True)
-            self._reset_sequence_state(error_occurred=True)
-        except Exception as e_proc_decomp:
-            logger.error(f"MTC ({self._sequence_id}): Unexpected error processing decomposition: {e_proc_decomp}",
-                         exc_info=True)
-            self._emit_chat_message_to_ui(
-                f"[System Error: Unexpected error during task decomposition. Details: {e_proc_decomp}]", is_error=True)
-            self._reset_sequence_state(error_occurred=True)
-
-    def _parse_function_specs_from_llm(self, response_text: str) -> List[FunctionSpecification]:
-        """Parses the LLM's structured text output into FunctionSpecification objects."""
-        specs = []
-        # Look for the main block first
-        main_block_match = re.search(r"FUNCTION_SPECS_START(.*?)FUNCTION_SPECS_END", response_text,
-                                     re.DOTALL | re.IGNORECASE)
-        content_to_parse = main_block_match.group(1) if main_block_match else response_text
-
-        # Split into individual function sections based on "---" or "Function:"
-        raw_function_blocks = re.split(r"\n---\n|\nFunction:", content_to_parse, flags=re.IGNORECASE)
-
-        for block in raw_function_blocks:
-            block = block.strip()
-            if not block: continue
-
-            name_match = re.search(r"^(?:Function:)?\s*([a-zA-Z_][a-zA-Z0-9_]*)", block, re.IGNORECASE)
-            desc_match = re.search(r"Description:\s*(.+)", block, re.IGNORECASE)
-            params_match = re.search(r"Parameters:\s*\((.*?)\)", block, re.IGNORECASE)  # Matches content inside ()
-            # More robust param parsing: list of dicts or string
-            params_list_match = re.search(r"Parameters:\s*(\[.*?\])", block, re.DOTALL | re.IGNORECASE)
-
-            ret_match = re.search(r"ReturnType:\s*(.+)", block, re.IGNORECASE)
-            deps_match = re.search(r"Dependencies:\s*(\[.*?\])", block, re.IGNORECASE)
-            file_target_match = re.search(r"FileTarget:\s*([\w\-./]+\.py)", block, re.IGNORECASE)
-
-            if not name_match or not desc_match:
-                logger.warning(f"MTC: Skipping malformed function spec block: {block[:100]}...")
-                continue
-
-            name = name_match.group(1).strip()
-            description = desc_match.group(1).strip()
-            return_type = ret_match.group(1).strip() if ret_match else "Any"
-
-            parameters = []
-            if params_list_match:  # Prefer list of dicts if available
-                try:
-                    params_list_str = params_list_match.group(1)
-                    parsed_params = ast.literal_eval(params_list_str)
-                    if isinstance(parsed_params, list):
-                        for p_dict in parsed_params:
-                            if isinstance(p_dict, dict) and "name" in p_dict and "type" in p_dict:
-                                parameters.append({
-                                    "name": p_dict["name"],
-                                    "type": p_dict["type"],
-                                    "description": p_dict.get("description", "")
-                                })
-                except (ValueError, SyntaxError) as e:
-                    logger.warning(f"MTC: Could not parse Parameters list '{params_list_match.group(1)}': {e}")
-            elif params_match:  # Fallback to string parsing
-                params_str = params_match.group(1).strip()
-                if params_str:
-                    param_parts = params_str.split(';')
-                    for part in param_parts:
-                        match_param_detail = re.match(r"\s*(\w+)\s*:\s*([\w\[\],\.\|\s\w]+)(?:\s*#\s*(.*))?",
-                                                      part.strip())
-                        if match_param_detail:
-                            p_name, p_type, p_desc = match_param_detail.groups()
-                            parameters.append(
-                                {"name": p_name.strip(), "type": p_type.strip(), "description": (p_desc or "").strip()})
-
-            dependencies = []
-            if deps_match:
-                try:
-                    deps_list_str = deps_match.group(1)
-                    deps = ast.literal_eval(deps_list_str)
-                    if isinstance(deps, list) and all(isinstance(d, str) for d in deps):
-                        dependencies = [d.strip() for d in deps if d.strip()]
-                except (ValueError, SyntaxError) as e:
-                    logger.warning(f"MTC: Could not parse Dependencies list '{deps_match.group(1)}': {e}")
-                    # Regex fallback for simple comma-separated names within brackets
-                    dependencies = [d.strip("'\" ") for d in re.findall(r"['\"]([^'\"]+)['\"]", deps_match.group(1))]
-
-            file_target = file_target_match.group(1).strip() if file_target_match else None
-            if not file_target:  # Default if not specified
-                file_target = "main_module.py"  # Or some other logic to assign files
-
-            specs.append(FunctionSpecification(
-                function_name=name,
-                description=description,
-                parameters=parameters,
-                return_type=return_type,
-                dependencies=dependencies,
-                file_target=file_target
-            ))
-        return specs
-
-    def _prepare_file_assemblies(self):
-        """Initializes FileAssemblyInfo objects based on FileTarget in function specs."""
-        self._file_assembly_map.clear()
-        for spec in self._function_specs_list:
-            if spec.file_target:
-                if spec.file_target not in self._file_assembly_map:
-                    self._file_assembly_map[spec.file_target] = FileAssemblyInfo(
-                        filename=spec.file_target,
-                        target_function_names=[]
-                    )
-                self._file_assembly_map[spec.file_target].target_function_names.append(spec.function_name)
-            else:
-                logger.warning(
-                    f"MTC: Function spec '{spec.function_name}' missing FileTarget. It might not be assembled.")
-        logger.info(f"MTC: Prepared {len(self._file_assembly_map)} file assemblies.")
-
-    async def _process_next_function_spec(self):
-        """Initiates generation for the next function in the list, or moves to review/assembly."""
-        if self._current_spec_index_being_processed >= len(self._function_specs_list):
-            logger.info(f"MTC ({self._sequence_id}): All function specifications processed. Moving to code assembly.")
-            self._current_phase = MicroTaskPhase.CODE_ASSEMBLY
-            asyncio.create_task(self._assemble_all_files())
+    @Slot(str, ChatMessage, dict)
+    def _handle_llm_completion(self, request_id: str, message: ChatMessage, metadata: dict):
+        if not self._sequence_id or metadata.get("sequence_id") != self._sequence_id:
             return
 
-        current_spec = self._function_specs_list[self._current_spec_index_being_processed]
+        purpose = metadata.get("purpose")
+        self._active_llm_request_id = None
 
-        # Check if all dependencies for the current spec are met (i.e., their code is generated)
-        dependencies_met = True
-        for dep_name in current_spec.dependencies:
-            dep_spec = next((s for s in self._function_specs_list if s.function_name == dep_name), None)
-            if not dep_spec or not dep_spec.generated_code:
-                dependencies_met = False
-                logger.info(
-                    f"MTC ({self._sequence_id}): Dependency '{dep_name}' for '{current_spec.function_name}' not yet met. Postponing.")
-                # This basic implementation will just wait. A more advanced one could reorder.
-                # For now, we assume the initial decomposition provides a somewhat valid order,
-                # or we process in batches where dependencies within a batch are not critical.
-                # This simplified version might get stuck if order is strictly required and not provided.
-                # A better approach is topological sort for specs or batching.
-                # For this iteration, if a dependency isn't met, we might error or just try.
-                # Let's assume for now that the order from decomposition is generally usable.
-                break
+        if purpose == "atomic_task_decomposition":
+            self._process_atomic_decomposition_response(message.text)
+        elif purpose == "atomic_code_generation":
+            task_id = metadata.get("atomic_task_id")
+            self._process_generated_atomic_code(task_id, message.text)
+        elif purpose == "intelligent_assembly":
+            filename = metadata.get("filename")
+            self._process_assembly_response(filename, message.text)
+        elif purpose == "integration_guidance":
+            self._process_integration_guidance(message.text)
 
-                # If not all dependencies met, an advanced system might re-prioritize. Here, we proceed cautiously.
-        if not dependencies_met:
-            logger.warning(
-                f"MTC ({self._sequence_id}): Strict dependencies for {current_spec.function_name} not met. Proceeding, but coding LLM must handle.")
+    def _process_atomic_decomposition_response(self, llm_response_text: str):
+        """Process the atomic task decomposition from the planner LLM"""
+        try:
+            self._atomic_tasks, self._file_assembly_plans = self._parse_atomic_tasks_from_llm(llm_response_text)
 
-        self._current_phase = MicroTaskPhase.FUNCTION_GENERATION
-        current_spec.status = MicroTaskPhase.FUNCTION_GENERATION
-        await self._request_function_generation(current_spec)
+            if not self._atomic_tasks:
+                raise ValueError("No atomic tasks parsed from LLM response")
 
-    async def _request_function_generation(self, spec: FunctionSpecification):
-        """Asks the coding LLM to generate code for a single function specification."""
-        if not self._sequence_id or not self._backend_coordinator: return
+            self._total_tasks_planned = len(self._atomic_tasks)
+            self._tasks_completed = 0
 
-        self._active_llm_request_id = f"mtc_gen_func_{spec.id}"
-        spec.request_id = self._active_llm_request_id  # Store request_id in the spec
-        spec.generation_attempts += 1
+            logger.info(
+                f"MTC ({self._sequence_id}): Decomposed into {self._total_tasks_planned} atomic tasks across {len(self._file_assembly_plans)} files")
 
-        self._emit_status_update(f"Generating function '{spec.function_name}' (Attempt {spec.generation_attempts})...",
-                                 "#c678dd", False)
-        self._emit_chat_message_to_ui(
-            f"[System: Generating function: `{spec.function_name}`... Attempt {spec.generation_attempts}]")
+            self._emit_chat_message_to_ui(
+                f"[System: ✅ **Phase 1 Complete**]\n"
+                f"🔬 Decomposed into **{self._total_tasks_planned}** atomic tasks across **{len(self._file_assembly_plans)}** files\n"
+                f"⚡ **Phase 2**: Generating atomic code components..."
+            )
 
-        # Gather context from already generated dependencies
-        dependency_context_code = []
-        for dep_name in spec.dependencies:
-            dep_func_spec = next(
-                (s for s in self._function_specs_list if s.function_name == dep_name and s.generated_code), None)
-            if dep_func_spec and dep_func_spec.generated_code:
-                dependency_context_code.append(f"# From dependency: {dep_name}\n{dep_func_spec.generated_code}")
+            # Resolve dependencies
+            self._dependency_resolver.analyze_and_order_tasks(self._atomic_tasks)
 
-        context_str = "\n\n".join(
-            dependency_context_code) if dependency_context_code else "No prior generated code context available for dependencies."
+            self._current_phase = MicroTaskPhase.ATOMIC_TASK_GENERATION
+            self._current_task_index = 0
+            asyncio.create_task(self._generate_next_atomic_task())
 
-        # TODO: Use a well-defined prompt from llm_prompts for function generation
-        # This prompt should include the spec details and the dependency context.
-        params_str_list = []
-        for p in spec.parameters:
-            param_desc = f" # {p['description']}" if p.get('description') else ""
-            params_str_list.append(f"{p['name']}: {p['type']}{param_desc}")
-        params_str_for_prompt = ", ".join(params_str_list)
+        except Exception as e:
+            logger.error(f"MTC ({self._sequence_id}): Failed to process decomposition: {e}", exc_info=True)
+            self._emit_chat_message_to_ui(f"[System Error: Could not understand task breakdown: {e}]", is_error=True)
+            self._reset_sequence_state(error_occurred=True)
 
-        generation_prompt = (
-            f"Generate the Python code for the following function specification:\n\n"
-            f"Function Name: {spec.function_name}\n"
-            f"Description: {spec.description}\n"
-            f"Parameters: ({params_str_for_prompt})\n"
-            f"Return Type: {spec.return_type}\n"
-            f"Target File (for context): {spec.file_target or 'Not specified'}\n"
-            f"Detailed Requirements: {spec.detailed_requirements if hasattr(spec, 'detailed_requirements') and spec.detailed_requirements else 'Implement as per description.'}\n\n"
-            f"Context from dependent functions (already generated or planned):\n{context_str}\n\n"
-            f"Adhere to these coding standards:\n"
-            f"- Include full type hints for all parameters and the return value.\n"
-            f"- Write a comprehensive Google-style docstring (Args, Returns, Raises sections).\n"
-            f"- Implement robust error handling using try-except blocks for anticipated issues.\n"
-            f"- Add INFO level logging for key operations and ERROR/EXCEPTION for failures.\n"
-            f"- Ensure the function is self-contained or only uses provided dependencies or standard libraries.\n"
-            f"- Output ONLY the Python function code, starting with 'def' or 'async def'. No extra text, explanations, or markdown fences."
+    def _parse_atomic_tasks_from_llm(self, response_text: str) -> Tuple[List[AtomicTask], Dict[str, FileAssemblyPlan]]:
+        """Parse the structured atomic task response"""
+        atomic_tasks = []
+        file_plans = {}
+
+        # Extract files to create
+        files_match = re.search(r"FILES_TO_CREATE:\s*(\[.*?])", response_text, re.DOTALL)
+        if not files_match:
+            raise ValueError("No FILES_TO_CREATE section found")
+
+        try:
+            files_list = ast.literal_eval(files_match.group(1))
+        except:
+            raise ValueError("Invalid FILES_TO_CREATE format")
+
+        # Process each file section
+        file_sections = re.split(r'\n###\s+', '\n' + response_text)[1:]
+
+        for section in file_sections:
+            lines = section.split('\n')
+            if not lines:
+                continue
+
+            filename = lines[0].strip()
+            if filename not in files_list:
+                continue
+
+            # Extract file metadata
+            purpose = self._extract_section_value(section, "PURPOSE")
+            module_docstring = self._extract_section_value(section, "MODULE_DOCSTRING")
+
+            # Extract atomic tasks JSON
+            tasks_match = re.search(r"ATOMIC_TASKS:\s*(\[.*?])", section, re.DOTALL)
+            if not tasks_match:
+                continue
+
+            try:
+                tasks_data = ast.literal_eval(tasks_match.group(1))
+                file_atomic_tasks = []
+
+                for task_data in tasks_data:
+                    atomic_task = AtomicTask(
+                        task_type=task_data.get("task_type", "function"),
+                        name=task_data.get("name", "unknown"),
+                        description=task_data.get("description", ""),
+                        parent_context=task_data.get("parent_context"),
+                        target_file=filename,
+                        signature=task_data.get("signature", ""),
+                        docstring_requirements=task_data.get("docstring_requirements", ""),
+                        dependencies=task_data.get("dependencies", []),
+                        estimated_complexity=task_data.get("estimated_complexity", 1)
+                    )
+                    atomic_tasks.append(atomic_task)
+                    file_atomic_tasks.append(atomic_task)
+
+                # Create file assembly plan
+                file_plans[filename] = FileAssemblyPlan(
+                    filename=filename,
+                    module_purpose=purpose or f"Implementation for {filename}",
+                    atomic_tasks=file_atomic_tasks
+                )
+
+            except Exception as e:
+                logger.warning(f"Failed to parse atomic tasks for {filename}: {e}")
+                continue
+
+        return atomic_tasks, file_plans
+
+    def _extract_section_value(self, section: str, key: str) -> Optional[str]:
+        """Extract a value from a section"""
+        pattern = rf"{key}:\s*(.+)"
+        match = re.search(pattern, section, re.IGNORECASE)
+        return match.group(1).strip() if match else None
+
+    async def _generate_next_atomic_task(self):
+        """Generate code for the next atomic task"""
+        if self._current_task_index >= len(self._atomic_tasks):
+            logger.info(f"MTC ({self._sequence_id}): All atomic tasks generated. Starting intelligent assembly.")
+            self._current_phase = MicroTaskPhase.INTELLIGENT_ASSEMBLY
+            asyncio.create_task(self._start_intelligent_assembly())
+            return
+
+        current_task = self._atomic_tasks[self._current_task_index]
+
+        # Check dependencies
+        if not self._dependency_resolver.are_dependencies_met(current_task, self._atomic_tasks):
+            logger.info(
+                f"MTC ({self._sequence_id}): Dependencies not met for {current_task.name}, finding next available task.")
+            self._current_task_index += 1
+            await self._generate_next_atomic_task()
+            return
+
+        await self._generate_atomic_task_code(current_task)
+
+    async def _generate_atomic_task_code(self, task: AtomicTask):
+        """Generate code for a single atomic task"""
+        task.request_id = f"atomic_{self._sequence_id}_{task.id}"
+        task.generation_attempts += 1
+        task.status = MicroTaskPhase.ATOMIC_TASK_GENERATION
+
+        self._emit_status_update(
+            f"⚡ Generating {task.task_type}: {task.name} ({self._tasks_completed + 1}/{self._total_tasks_planned})",
+            "#c678dd", False
         )
 
-        history = [ChatMessage(role=USER_ROLE, parts=[generation_prompt])]  # type: ignore
+        # Build context from dependencies
+        dependency_context = self._build_dependency_context(task)
+
+        # Create focused prompt for this atomic task
+        generation_prompt = self._build_atomic_generation_prompt(task, dependency_context)
+        history = [ChatMessage(role=USER_ROLE, parts=[generation_prompt])]
 
         self._backend_coordinator.start_llm_streaming_task(
-            request_id=self._active_llm_request_id,
+            request_id=task.request_id,
             target_backend_id=self._project_context['coding_backend'],
             history_to_send=history,
             is_modification_response_expected=True,
-            options={"temperature": 0.1},  # Very low temp for precise code
+            options={"temperature": 0.05},  # Very low for precise code
             request_metadata={
-                "purpose": "microtask_function_generation", "sequence_id": self._sequence_id,
-                "function_spec_id": spec.id,  # Pass spec ID to map response back
+                "purpose": "atomic_code_generation",
+                "sequence_id": self._sequence_id,
+                "atomic_task_id": task.id,
                 "project_id": self._project_context.get('project_id'),
                 "session_id": self._project_context.get('session_id')
             }
         )
 
-    def _process_generated_function_code(self, spec_id: Optional[str], generated_code_text: str):
-        """Processes the generated code for a function, validates it, and decides next step."""
-        if not spec_id:
-            logger.error(f"MTC ({self._sequence_id}): Received generated function code without spec_id.");
+    def _build_dependency_context(self, task: AtomicTask) -> str:
+        """Build context from completed dependency tasks"""
+        context_parts = []
+        for dep_name in task.dependencies:
+            dep_task = next((t for t in self._atomic_tasks
+                             if t.name == dep_name and t.generated_code), None)
+            if dep_task:
+                context_parts.append(f"# {dep_name} (already implemented):\n{dep_task.generated_code}")
+
+        return "\n\n".join(context_parts) if context_parts else "# No dependencies available yet"
+
+    def _build_atomic_generation_prompt(self, task: AtomicTask, dependency_context: str) -> str:
+        """Build a focused prompt for generating a single atomic task"""
+        return f"""Generate ONLY the Python code for this specific atomic task:
+
+**Task Type**: {task.task_type}
+**Name**: {task.name}
+**Description**: {task.description}
+**Signature**: {task.signature}
+**Parent Context**: {task.parent_context or 'Module level'}
+**Target File**: {task.target_file}
+
+**Docstring Requirements**: {task.docstring_requirements}
+
+**Available Dependencies**:
+{dependency_context}
+
+**Quality Requirements**:
+- Include proper type hints
+- Write comprehensive docstring as specified
+- Add appropriate error handling
+- Include logging where relevant
+- Follow PEP 8 standards
+
+**Output**: ONLY the code for this specific {task.task_type}. No explanations, no markdown blocks, just the Python code."""
+
+    def _process_generated_atomic_code(self, task_id: Optional[str], generated_code_text: str):
+        """Process the generated code for an atomic task"""
+        if not task_id:
+            logger.error(f"MTC ({self._sequence_id}): No task_id provided for generated code")
             return
 
-        spec = next((s for s in self._function_specs_list if s.id == spec_id), None)
-        if not spec:
-            logger.error(f"MTC ({self._sequence_id}): Could not find function spec for ID '{spec_id}'.");
+        task = next((t for t in self._atomic_tasks if t.id == task_id), None)
+        if not task:
+            logger.error(f"MTC ({self._sequence_id}): Task {task_id} not found")
             return
 
-        logger.info(f"MTC ({self._sequence_id}): Processing generated code for function '{spec.function_name}'.")
-
-        # Use CodeOutputProcessor to extract and clean the code
-        extracted_code, quality, notes = self._code_processor.process_llm_response(  # type: ignore
-            generated_code_text, f"{spec.function_name}.py"  # Treat as a mini-file for processing
+        # Extract and validate the code
+        extracted_code, quality, notes = self._code_processor.process_llm_response(
+            generated_code_text, f"{task.name}.py"
         )
 
-        spec.generated_code = extracted_code
-        spec.validation_errors.clear()
+        task.generated_code = extracted_code
+        task.validation_errors.clear()
 
-        if not extracted_code:
-            spec.validation_errors.append("Code extraction failed. LLM did not produce a recognizable code block.")
-            logger.warning(
-                f"MTC ({self._sequence_id}): Code extraction failed for '{spec.function_name}'. Notes: {notes}")
-        else:
-            is_valid, syntax_error = self._code_processor._is_valid_python_code(extracted_code)  # type: ignore
-            if not is_valid:
-                spec.validation_errors.append(f"Syntax error: {syntax_error or 'Unknown syntax issue'}")
-            # TODO: Add more sophisticated validation (e.g., checking parameters, return type consistency with spec)
+        if extracted_code:
+            is_valid, syntax_error = self._code_processor._is_valid_python_code(extracted_code)
+            if is_valid:
+                task.status = MicroTaskPhase.COMPLETED
+                self._tasks_completed += 1
 
-        if not spec.validation_errors:
-            spec.status = MicroTaskPhase.COMPLETED  # Mark this function as tentatively complete
-            self._functions_generated += 1
-            self._completed_functions[spec.function_name] = spec.generated_code  # Store for context
+                logger.info(
+                    f"MTC ({self._sequence_id}): ✅ Generated {task.task_type} '{task.name}' (Quality: {quality.name if quality else 'N/A'})")
 
-            # Add to file assembly
-            if spec.file_target and spec.file_target in self._file_assembly_map:
-                self._file_assembly_map[spec.file_target].generated_functions[spec.function_name] = spec.generated_code
-
-            logger.info(
-                f"MTC ({self._sequence_id}): Function '{spec.function_name}' generated and passed basic validation (Attempt {spec.generation_attempts}).")
-            self._emit_chat_message_to_ui(
-                f"[System: Successfully generated function `{spec.function_name}`. ({self._functions_generated}/{self._total_functions_planned})]")
-
-            # Move to next spec
-            self._current_spec_index_being_processed += 1
-            asyncio.create_task(self._process_next_function_spec())
-        else:  # Validation failed
-            logger.warning(
-                f"MTC ({self._sequence_id}): Validation failed for '{spec.function_name}' (Attempt {spec.generation_attempts}): {spec.validation_errors}")
-            if spec.generation_attempts < self.MAX_GENERATION_ATTEMPTS_PER_FUNCTION:
-                self._emit_chat_message_to_ui(
-                    f"[System: Validation failed for `{spec.function_name}`. Errors: {'; '.join(spec.validation_errors)}. Retrying...]")
-                # TODO: Optionally, could involve planning model for review/retry prompt generation here
-                # For now, just retry with the same (or slightly modified) generation prompt
-                asyncio.create_task(self._request_function_generation(spec))  # Retry
+                # Move to next task
+                self._current_task_index += 1
+                asyncio.create_task(self._generate_next_atomic_task())
+                return
             else:
-                logger.error(
-                    f"MTC ({self._sequence_id}): Max retries reached for function '{spec.function_name}'. Marking as ERROR.")
-                spec.status = MicroTaskPhase.ERROR
-                self._emit_chat_message_to_ui(
-                    f"[System Error: Failed to generate valid code for function `{spec.function_name}` after {spec.generation_attempts} attempts. Errors: {'; '.join(spec.validation_errors)}]",
-                    is_error=True)
-                # Decide how to handle overall sequence failure - for now, continue with other functions if possible
-                # or halt the entire sequence.
-                self._current_spec_index_being_processed += 1  # Move on, but this function is errored
-                asyncio.create_task(self._process_next_function_spec())
+                task.validation_errors.append(f"Syntax error: {syntax_error}")
+        else:
+            task.validation_errors.append("Failed to extract code from LLM response")
 
-    async def _assemble_all_files(self):
-        """Assembles all generated functions into their target files."""
-        logger.info(
-            f"MTC ({self._sequence_id}): Starting code assembly phase for {len(self._file_assembly_map)} files.")
-        self._emit_chat_message_to_ui("[System: All functions generated. Assembling files...]")
-        self._emit_status_update("Assembling code into files...", "#56b6c2", False)
+        # Handle retry logic
+        if task.generation_attempts < self.MAX_GENERATION_ATTEMPTS_PER_TASK:
+            logger.warning(f"MTC ({self._sequence_id}): Retrying {task.name} (attempt {task.generation_attempts + 1})")
+            asyncio.create_task(self._generate_atomic_task_code(task))
+        else:
+            logger.error(
+                f"MTC ({self._sequence_id}): Failed to generate {task.name} after {task.generation_attempts} attempts")
+            task.status = MicroTaskPhase.ERROR
+            self._current_task_index += 1
+            asyncio.create_task(self._generate_next_atomic_task())
 
-        for filename, assembly_info in self._file_assembly_map.items():
-            logger.info(f"MTC ({self._sequence_id}): Assembling file '{filename}'.")
-            # TODO: Use a more sophisticated assembly prompt if needed, e.g., asking LLM to arrange functions, add imports, class structures.
-            # For now, simple concatenation with basic import and class scaffolding.
+    async def _start_intelligent_assembly(self):
+        """Start the intelligent assembly phase"""
+        self._emit_chat_message_to_ui(
+            f"[System: ✅ **Phase 2 Complete**]\n"
+            f"🔧 **Phase 3**: Intelligent Assembly - AI Architect organizing code into production files..."
+        )
 
-            all_code_for_file = []
-            # Basic import gathering (can be improved by LLM or AST analysis later)
-            # For now, let's assume coding LLM included necessary imports within functions or we handle it globally.
+        for filename, plan in self._file_assembly_plans.items():
+            await self._assemble_file_intelligently(plan)
 
-            # Simple concatenation of functions intended for this file
-            for func_name in assembly_info.target_function_names:
-                if func_name in assembly_info.generated_functions:
-                    all_code_for_file.append(assembly_info.generated_functions[func_name])
-                else:
-                    logger.warning(
-                        f"MTC ({self._sequence_id}): Function '{func_name}' targeted for '{filename}' was not successfully generated.")
-                    all_code_for_file.append(
-                        f"\n# TODO: Implement function: {func_name} (generation failed or pending)\npass\n")
+        self._finalize_sequence()
 
-            assembled_code = "\n\n".join(all_code_for_file)
+    async def _assemble_file_intelligently(self, plan: FileAssemblyPlan):
+        """Use the intelligent assembler to create a production-ready file"""
+        self._emit_status_update(f"🔧 Assembling {plan.filename}...", "#56b6c2", False)
 
-            # Add a basic header
-            header = f"# File: {filename}\n# Generated by AvA Micro-Task Coordinator (Sequence: {self._sequence_id})\n"
-            header += f"# Original User Query: {self._original_query[:100]}...\n\n"
-            # TODO: Add logic to collect and add necessary imports at the top.
-            # For now, assume functions included their own imports or they are standard libs.
+        # Gather completed atomic tasks for this file
+        completed_tasks = [task for task in plan.atomic_tasks
+                           if task.generated_code and task.status == MicroTaskPhase.COMPLETED]
 
-            final_code_for_file = header + assembled_code
-            assembly_info.assembled_code = final_code_for_file
+        if not completed_tasks:
+            logger.warning(f"MTC ({self._sequence_id}): No completed tasks for {plan.filename}")
+            return
 
-            # Write to disk
-            self._write_assembled_file_to_disk(filename, final_code_for_file)
-            self._event_bus.modificationFileReadyForDisplay.emit(filename, final_code_for_file)
-            assembly_info.is_complete = True
+        try:
+            # Use the intelligent assembler
+            assembled_code = await self._assembler.assemble_production_file(
+                filename=plan.filename,
+                module_purpose=plan.module_purpose,
+                atomic_tasks=completed_tasks,
+                sequence_id=self._sequence_id
+            )
 
-        self._current_phase = MicroTaskPhase.FINAL_VALIDATION  # Or COMPLETED if no further validation
-        self._finalize_micro_task_sequence()
+            if assembled_code:
+                plan.final_code = assembled_code
+                plan.assembly_complete = True
+
+                # Write to disk and notify UI
+                self._write_assembled_file_to_disk(plan.filename, assembled_code)
+                self._event_bus.modificationFileReadyForDisplay.emit(plan.filename, assembled_code)
+
+                logger.info(f"MTC ({self._sequence_id}): ✅ Successfully assembled {plan.filename}")
+                self._emit_chat_message_to_ui(f"✅ **{plan.filename}** assembled and ready for review")
+            else:
+                logger.error(f"MTC ({self._sequence_id}): Assembly failed for {plan.filename}")
+
+        except Exception as e:
+            logger.error(f"MTC ({self._sequence_id}): Error assembling {plan.filename}: {e}", exc_info=True)
 
     def _write_assembled_file_to_disk(self, relative_filename: str, content: str):
-        """Writes the assembled file content to the project directory."""
+        """Write the assembled file to the project directory"""
         try:
             project_root = self._project_context.get('project_dir')
             if not project_root:
-                logger.error(
-                    f"MTC ({self._sequence_id}): Project directory not set. Cannot write file '{relative_filename}'.")
-                return  # Or raise error
+                logger.error(f"MTC ({self._sequence_id}): No project directory set")
+                return
 
             abs_file_path = os.path.abspath(os.path.join(project_root, relative_filename))
+
+            # Security check
             if not abs_file_path.startswith(os.path.abspath(project_root)):
-                logger.error(
-                    f"MTC ({self._sequence_id}): Security risk! Attempt to write file '{relative_filename}' outside project root. Blocked.")
-                return  # Or raise error
+                logger.error(f"MTC ({self._sequence_id}): Security risk - file outside project root")
+                return
 
             os.makedirs(os.path.dirname(abs_file_path), exist_ok=True)
+
             with open(abs_file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
-            logger.info(f"MTC ({self._sequence_id}): Successfully wrote assembled file: {abs_file_path}")
-        except Exception as e_write:
-            logger.error(f"MTC ({self._sequence_id}): Error writing assembled file '{relative_filename}': {e_write}",
-                         exc_info=True)
 
-    def _finalize_micro_task_sequence(self):
-        """Finalizes the micro-task sequence and reports results."""
-        logger.info(f"MTC ({self._sequence_id}): Finalizing micro-task sequence.")
-        self._current_phase = MicroTaskPhase.COMPLETED
+            logger.info(f"MTC ({self._sequence_id}): Wrote {abs_file_path}")
 
-        successful_files = [f.filename for f in self._file_assembly_map.values() if f.is_complete and f.assembled_code]
-        failed_specs = [s.function_name for s in self._function_specs_list if s.status == MicroTaskPhase.ERROR]
+        except Exception as e:
+            logger.error(f"MTC ({self._sequence_id}): Error writing {relative_filename}: {e}", exc_info=True)
 
-        if not failed_specs and len(successful_files) == len(self._file_assembly_map):
-            summary_msg = f"[System: Micro-task generation completed successfully! {len(successful_files)} file(s) created/updated: {', '.join(successful_files)}]"
-            self._emit_status_update(f"✅ Micro-tasks complete: {len(successful_files)} files.", "#98c379", False)
+    def _finalize_sequence(self):
+        """Finalize the micro-task sequence"""
+        successful_files = [plan.filename for plan in self._file_assembly_plans.values()
+                            if plan.assembly_complete]
+        failed_tasks = [task.name for task in self._atomic_tasks if task.status == MicroTaskPhase.ERROR]
+
+        if len(successful_files) == len(self._file_assembly_plans) and not failed_tasks:
+            summary = f"[System: ✅ **Micro-Task Generation Complete!**]\n🎉 Successfully generated **{len(successful_files)}** production-ready files:\n"
+            for filename in successful_files:
+                summary += f"  • **{filename}**\n"
+            summary += "\n📝 Files are ready for review in the Code Viewer!"
+
+            self._emit_status_update(f"✅ {len(successful_files)} files generated successfully!", "#98c379", False)
         else:
-            summary_msg = f"[System: Micro-task generation finished with issues. {len(successful_files)}/{len(self._file_assembly_map)} files assembled. "
-            if failed_specs:
-                summary_msg += f"Failed functions: {', '.join(failed_specs[:3])}{'...' if len(failed_specs) > 3 else ''}."
-            self._emit_status_update(f"⚠️ Micro-tasks finished with issues. Check generated files.", "#e5c07b", False)
+            summary = f"[System: ⚠️ **Micro-Task Generation Completed with Issues**]\n"
+            summary += f"✅ Generated: {len(successful_files)}/{len(self._file_assembly_plans)} files\n"
+            if failed_tasks:
+                summary += f"❌ Failed tasks: {', '.join(failed_tasks[:3])}{'...' if len(failed_tasks) > 3 else ''}"
 
-        self._emit_chat_message_to_ui(summary_msg, is_error=bool(failed_specs))
-        self._log_communication("SEQ_COMPLETE",
-                                f"Files assembled: {len(successful_files)}. Failed functions: {len(failed_specs)}.")
+            self._emit_status_update(f"⚠️ {len(successful_files)}/{len(self._file_assembly_plans)} files completed",
+                                     "#e5c07b", False)
+
+        self._emit_chat_message_to_ui(summary, is_error=bool(failed_tasks))
+        self._log_communication("SEQ_COMPLETE", f"Files: {len(successful_files)}, Failed tasks: {len(failed_tasks)}")
         self._reset_sequence_state()
 
     @Slot(str, str)
     def _handle_llm_error(self, request_id: str, error_message: str):
-        if not self._sequence_id or self._active_llm_request_id != request_id:
+        """Handle LLM errors during the sequence"""
+        if not self._sequence_id:
             return
 
-        logger.error(f"MTC ({self._sequence_id}): LLM error for ReqID '{request_id}': {error_message}")
-        self._active_llm_request_id = None  # Clear active request
+        # Find the task that failed
+        failed_task = None
+        for task in self._atomic_tasks:
+            if task.request_id == request_id:
+                failed_task = task
+                break
 
-        current_phase_at_error = self._current_phase
-        spec_id_at_error = None
+        if failed_task:
+            failed_task.status = MicroTaskPhase.ERROR
+            failed_task.validation_errors.append(f"LLM Error: {error_message}")
+            logger.error(f"MTC ({self._sequence_id}): LLM error for {failed_task.name}: {error_message}")
 
-        # Find if the error was for a specific function spec
-        for spec in self._function_specs_list:
-            if spec.request_id == request_id:
-                spec_id_at_error = spec.id
-                spec.status = MicroTaskPhase.ERROR
-                spec.error_message = error_message
-                logger.error(
-                    f"MTC ({self._sequence_id}): LLM error during phase {current_phase_at_error.name} for function '{spec.function_name}'.")
-                self._emit_chat_message_to_ui(
-                    f"[System Error: AI failed while working on function `{spec.function_name}`: {error_message}]",
-                    is_error=True)
-                # Decide if we retry this spec or halt
-                if spec.generation_attempts < self.MAX_GENERATION_ATTEMPTS_PER_FUNCTION:
-                    asyncio.create_task(self._request_function_generation(spec))  # Retry
-                    return  # Don't reset the whole sequence yet
-                else:
-                    logger.error(
-                        f"MTC ({self._sequence_id}): Max retries for '{spec.function_name}' reached after LLM error.")
-                break  # Found the spec, stop iterating
-
-        if current_phase_at_error == MicroTaskPhase.INITIAL_DECOMPOSITION:
-            self._emit_chat_message_to_ui(
-                f"[System Error: AI failed during initial task decomposition: {error_message}]", is_error=True)
-
-        # If error was critical or max retries reached for a function, reset the sequence
-        self._reset_sequence_state(error_occurred=True,
-                                   message=f"LLM error in phase {current_phase_at_error.name}: {error_message[:60]}")
+            if failed_task.generation_attempts < self.MAX_GENERATION_ATTEMPTS_PER_TASK:
+                asyncio.create_task(self._generate_atomic_task_code(failed_task))
+            else:
+                self._current_task_index += 1
+                asyncio.create_task(self._generate_next_atomic_task())
+        else:
+            logger.error(f"MTC ({self._sequence_id}): LLM error for unknown request {request_id}: {error_message}")
+            self._reset_sequence_state(error_occurred=True, message=f"LLM error: {error_message}")
 
     def _reset_sequence_state(self, error_occurred: bool = False, message: Optional[str] = None):
-        logger.info(
-            f"MTC ({self._sequence_id or 'N/A'}): Resetting sequence state. Error: {error_occurred}. Message: {message}")
+        """Reset the coordinator state"""
+        logger.info(f"MTC ({self._sequence_id or 'N/A'}): Resetting state. Error: {error_occurred}")
+
         self._current_phase = MicroTaskPhase.IDLE
         self._sequence_id = None
         self._original_query = None
         self._project_context.clear()
-        self._function_specs_list.clear()
-        self._file_assembly_map.clear()
-        self._current_spec_index_being_processed = 0
+        self._atomic_tasks.clear()
+        self._file_assembly_plans.clear()
+        self._current_task_index = 0
         self._active_llm_request_id = None
-        self._functions_generated = 0
-        self._total_functions_planned = 0
+        self._tasks_completed = 0
+        self._total_tasks_planned = 0
 
         self._event_bus.uiInputBarBusyStateChanged.emit(False)
+
         if error_occurred:
             self._emit_status_update(f"❌ Micro-task sequence failed: {message or 'Unknown error'}", "#e06c75", False)
-        else:  # If reset without explicit error (e.g. user cancellation - not yet implemented)
-            self._emit_status_update("Micro-task sequence ended.", "#abb2bf", True, 3000)
+        else:
+            self._emit_status_update("Ready for new micro-task generation", "#abb2bf", True, 3000)
 
     def _log_communication(self, stage: str, message: str):
+        """Log communication for debugging"""
         if self._llm_comm_logger and self._sequence_id:
-            self._llm_comm_logger.log_message(f"MTC:{self._sequence_id}:{stage.upper()}", message)
+            self._llm_comm_logger.log_message(f"MTC:{self._sequence_id}:{stage}", message)
 
     def _emit_status_update(self, message: str, color: str, is_temporary: bool, duration_ms: int = 0):
+        """Emit status update to UI"""
         self._event_bus.uiStatusUpdateGlobal.emit(message, color, is_temporary, duration_ms)
 
     def _emit_chat_message_to_ui(self, text: str, is_error: bool = False):
+        """Emit chat message to UI"""
         project_id = self._project_context.get('project_id')
         session_id = self._project_context.get('session_id')
         if project_id and session_id:
             role = ERROR_ROLE if is_error else SYSTEM_ROLE
             msg_id = f"mtc_msg_{self._sequence_id or 'unknown'}_{uuid.uuid4().hex[:4]}"
-            chat_msg = ChatMessage(id=msg_id, role=role, parts=[text])  # type: ignore
+            chat_msg = ChatMessage(id=msg_id, role=role, parts=[text])
             self._event_bus.newMessageAddedToHistory.emit(project_id, session_id, chat_msg)
 
     def is_busy(self) -> bool:
+        """Check if coordinator is busy"""
         return self._current_phase != MicroTaskPhase.IDLE

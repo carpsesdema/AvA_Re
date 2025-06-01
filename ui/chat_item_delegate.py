@@ -270,6 +270,7 @@ class ChatItemDelegate(QStyledItemDelegate):
 
         # Draw Timestamp
         formatted_timestamp = self._format_timestamp(message.timestamp)
+        item_rect = option.rect  # Full item rectangle
         if formatted_timestamp:
             # Position timestamp below the bubble
             ts_y_pos = bubble_rect.bottom() + TIMESTAMP_PADDING_TOP

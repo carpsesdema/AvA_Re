@@ -4,7 +4,6 @@ import uuid
 import html
 from datetime import datetime
 from typing import Dict, List, Optional, Any
-
 from PySide6.QtCore import QObject, Signal
 
 logger = logging.getLogger(__name__)

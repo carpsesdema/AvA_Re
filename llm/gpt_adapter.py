@@ -8,8 +8,8 @@ from typing import List, Optional, AsyncGenerator, Dict, Any, Tuple
 try:
     # Assuming BackendInterface is in the same package
     from .backend_interface import BackendInterface
-    # Models are now in app.models
-    from app.models.chat_message import ChatMessage, MODEL_ROLE, USER_ROLE, SYSTEM_ROLE
+    # Models are now in models
+    from models.chat_message import ChatMessage, MODEL_ROLE, USER_ROLE, SYSTEM_ROLE
 except ImportError as e_imp:
     logging.getLogger(__name__).critical(f"GPTAdapter: Critical import error: {e_imp}", exc_info=True)
     # Fallback types for type hinting

@@ -7,42 +7,41 @@ from PySide6.QtCore import QObject, Slot
 
 # Forward references to handle potential circular dependencies
 if TYPE_CHECKING:
-    from app.services.project_service import ProjectManager
-    from app.core.chat_manager import ChatManager
-    from app.services.rag_sync_service import RagSyncService
-    from app.services.live_code_analyzer import LiveCodeAnalyzer
+    from services.project_service import ProjectManager
+    from core.chat_manager import ChatManager
+    from services.rag_sync_service import RagSyncService
     # Only BackendCoordinator is directly instantiated by ApplicationOrchestrator now
-    from app.llm.backend_coordinator import BackendCoordinator
+    from llm.backend_coordinator import BackendCoordinator
 
 logger = logging.getLogger(__name__)
 
 try:
     from core.event_bus import EventBus
     # BackendCoordinator will import its own adapters
-    from app.llm.backend_coordinator import BackendCoordinator
-    from app.services.upload_service import UploadService
-    from app.services.terminal_service import TerminalService
-    from app.services.update_service import UpdateService
-    from app.services.llm_communication_logger import LlmCommunicationLogger
+    from llm.backend_coordinator import BackendCoordinator
+    from services.upload_service import UploadService
+    from services.terminal_service import TerminalService
+    from services.update_service import UpdateService
+    from services.llm_communication_logger import LlmCommunicationLogger
     from utils import constants
 
     # Import RAG handler with fallback
     try:
-        from app.llm.rag_system import RagSystem as RagHandler
+        from llm.rag_system import RagSystem as RagHandler
     except ImportError:
         logger.warning("RagHandler (RagSystem) not found. RAG functionality will be limited.")
         RagHandler = None  # type: ignore
 
     # Import RAG sync service
     try:
-        from app.services.rag_sync_service import RagSyncService
+        from services.rag_sync_service import RagSyncService
     except ImportError:
         logger.warning("RagSyncService not available. Multi-project RAG sync disabled.")
         RagSyncService = None  # type: ignore
 
     # Import LiveCodeAnalyzer
     try:
-        from app.services.live_code_analyzer import LiveCodeAnalyzer
+        from services.live_code_analyzer import LiveCodeAnalyzer
     except ImportError:
         logger.warning("LiveCodeAnalyzer not available. Real-time code intelligence disabled.")
         LiveCodeAnalyzer = None  # type: ignore
@@ -148,12 +147,12 @@ class ApplicationOrchestrator(QObject):
                 logger.warning("LlmCommunicationLogger could not be initialized.")
 
             try:
-                from app.core.conversation_orchestrator import ConversationOrchestrator
+                from core.conversation_orchestrator import ConversationOrchestrator
                 self.conversation_orchestrator = ConversationOrchestrator(event_bus=self.event_bus, parent=self)
                 logger.info("ConversationOrchestrator initialized.")
             except ImportError:
                 logger.warning(
-                    "ConversationOrchestrator not found in app.core. Conversational planning will be limited.")
+                    "ConversationOrchestrator not found in core. Conversational planning will be limited.")
                 self.conversation_orchestrator = None
             except Exception as e_co:
                 logger.error(f"Error initializing ConversationOrchestrator: {e_co}", exc_info=True)

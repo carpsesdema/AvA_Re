@@ -1,10 +1,8 @@
 # app/services/update_service.py
-import json
 import logging
 import os
-import sys
-import subprocess
 import shutil
+import sys
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -307,6 +305,7 @@ class UpdateService(QObject):
         current executable and preparing for a restart.
         WARNING: This is platform-dependent and can be complex.
         """
+        global backup_exe_path, current_exe_path
         try:
             update_file_path = Path(downloaded_file_path_str)
             if not update_file_path.exists():

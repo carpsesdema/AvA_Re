@@ -1,308 +1,431 @@
 # app/core/chat_router.py
 import logging
-import asyncio  # For async calls to handlers
+import asyncio
 from typing import TYPE_CHECKING, Optional, Dict, Any, List
 
 from PySide6.QtCore import QObject
 
 try:
-    # Corrected path for UserInputHandler and its enum
     from core.user_input_handler import ProcessedInput, UserInputIntent
-    # If specific prompts are constructed here, import from llm.prompts
     from llm import prompts as llm_prompts
-    from models.chat_message import ChatMessage, USER_ROLE  # For constructing prompts if needed
+    from models.chat_message import ChatMessage, USER_ROLE, ERROR_ROLE
 except ImportError as e_cr:
     logging.getLogger(__name__).critical(f"ChatRouter: Critical import error: {e_cr}", exc_info=True)
-    # Fallback types
-    ProcessedInput = type("ProcessedInput", (object,), {})  # type: ignore
-    UserInputIntent = type("UserInputIntent", (object,), {})  # type: ignore
-    llm_prompts = type("llm_prompts", (object,), {})  # type: ignore
-    ChatMessage = type("ChatMessage", (object,), {})  # type: ignore
-    USER_ROLE = "user"  # type: ignore
+    ProcessedInput = type("ProcessedInput", (object,), {})
+    UserInputIntent = type("UserInputIntent", (object,), {})
+    llm_prompts = type("llm_prompts", (object,), {})
+    ChatMessage = type("ChatMessage", (object,), {})
+    USER_ROLE = ERROR_ROLE = "user"
     raise
 
 if TYPE_CHECKING:
-    # These are forward references for type hinting to avoid circular imports at runtime
     from core.conversation_orchestrator import ConversationOrchestrator
     from core.plan_and_code_coordinator import PlanAndCodeCoordinator
     from core.micro_task_coordinator import MicroTaskCoordinator
     from core.llm_request_handler import LlmRequestHandler
-    # from core.project_iteration_handler import ProjectIterationHandler # If we create this
 
 logger = logging.getLogger(__name__)
 
 
 class ChatRouter(QObject):
     """
-    Routes processed user input to the appropriate handler or coordinator
-    based on the detected intent. This class itself doesn't perform LLM calls
-    but delegates to specialized components.
+    Enhanced router that intelligently routes requests to the appropriate coordination system.
+    Now works with the enhanced Plan-and-Code + Micro-Task architecture.
     """
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
-        # Dependencies will be injected by the ChatManager
+
+        # Core coordinators
         self._conversation_orchestrator: Optional['ConversationOrchestrator'] = None
         self._plan_and_code_coordinator: Optional['PlanAndCodeCoordinator'] = None
         self._micro_task_coordinator: Optional['MicroTaskCoordinator'] = None
         self._llm_request_handler: Optional['LlmRequestHandler'] = None
-        # self._project_iteration_handler: Optional['ProjectIterationHandler'] = None # Example for future
 
-        logger.info("ChatRouter initialized.")
+        logger.info("Enhanced ChatRouter initialized.")
 
     def set_handlers(self,
                      conversation_orchestrator: Optional['ConversationOrchestrator'] = None,
                      plan_and_code_coordinator: Optional['PlanAndCodeCoordinator'] = None,
                      micro_task_coordinator: Optional['MicroTaskCoordinator'] = None,
-                     llm_request_handler: Optional['LlmRequestHandler'] = None
-                     # project_iteration_handler: Optional['ProjectIterationHandler'] = None
-                     ):
-        """Injects the necessary handlers/coordinators that this router will delegate to."""
+                     llm_request_handler: Optional['LlmRequestHandler'] = None):
+        """Set the enhanced coordination handlers"""
         self._conversation_orchestrator = conversation_orchestrator
         self._plan_and_code_coordinator = plan_and_code_coordinator
         self._micro_task_coordinator = micro_task_coordinator
         self._llm_request_handler = llm_request_handler
-        # self._project_iteration_handler = project_iteration_handler
-        logger.info("ChatRouter dependencies (handlers/coordinators) set.")
+        logger.info("Enhanced ChatRouter dependencies set.")
 
     async def route_request(self,
                             processed_input: ProcessedInput,
-                            chat_history_for_llm: List['ChatMessage'],  # Full history for context
+                            chat_history_for_llm: List['ChatMessage'],
                             image_data: List[Dict[str, Any]],
-                            # --- Context from ChatManager/BackendConfigManager ---
+                            # Context from ChatManager
                             project_id: Optional[str],
                             session_id: Optional[str],
                             # Primary Chat LLM Config
                             chat_backend_id: str,
                             chat_model_name: str,
                             chat_temperature: float,
-                            chat_system_prompt: Optional[str],  # Current system prompt for chat
+                            chat_system_prompt: Optional[str],
                             # Specialized Coder LLM Config
                             specialized_backend_id: str,
                             specialized_model_name: str,
                             specialized_temperature: float,
-                            # Other Context
+                            # Project Context
                             current_project_directory: str,
-                            project_name_for_context: Optional[str] = None,  # For iteration prompt
-                            project_description_for_context: Optional[str] = None  # For iteration prompt
-                            ):
+                            project_name_for_context: Optional[str] = None,
+                            project_description_for_context: Optional[str] = None):
         """
-        Routes the user's request to the appropriate handler based on intent.
+        Enhanced routing with intelligent decision making
         """
         intent = processed_input.intent
-        query_for_handler = processed_input.processed_query  # Query after any prefix stripping
-        original_full_query = processed_input.original_query  # Full original query from user
+        query_for_handler = processed_input.processed_query
+        original_full_query = processed_input.original_query
         data_from_input_handler = processed_input.data
 
-        logger.info(f"ChatRouter: Routing intent '{intent.name}' for query: '{query_for_handler[:50]}...'")
+        logger.info(f"ChatRouter: Routing enhanced intent '{intent.name}' for query: '{query_for_handler[:50]}...'")
 
-        if intent == UserInputIntent.CONVERSATIONAL_PLANNING:  # type: ignore
-            if self._conversation_orchestrator:
-                logger.debug("Routing to ConversationOrchestrator.")
-                await self._conversation_orchestrator.start_conversation(
-                    user_input=original_full_query,  # CO typically starts with the broader, original query
-                    project_id=project_id,
-                    session_id=session_id
-                )
-            else:
-                await self._handle_missing_handler("Conversational Planning", chat_history_for_llm, image_data,
-                                                   project_id, session_id, chat_backend_id, chat_model_name,
-                                                   chat_temperature)
+        # Enhanced routing logic
+        if intent == UserInputIntent.CONVERSATIONAL_PLANNING:
+            await self._route_to_conversational_planning(
+                original_full_query, project_id, session_id
+            )
 
-        elif intent == UserInputIntent.MICRO_TASK_REQUEST:  # type: ignore
-            if self._micro_task_coordinator:
-                logger.debug("Routing to MicroTaskCoordinator.")
-                self._micro_task_coordinator.start_micro_task_generation(
-                    user_query=query_for_handler,
-                    planning_backend=chat_backend_id,  # Use chat LLM for planning phase
-                    planning_model=chat_model_name,
-                    coding_backend=specialized_backend_id,
-                    coding_model=specialized_model_name,
-                    project_dir=current_project_directory,
-                    project_id=project_id,
-                    session_id=session_id
-                )
-            else:
-                await self._handle_missing_handler("Micro-Task Generation", chat_history_for_llm, image_data,
-                                                   project_id, session_id, chat_backend_id, chat_model_name,
-                                                   chat_temperature)
+        elif intent == UserInputIntent.PLAN_THEN_CODE_REQUEST:
+            await self._route_to_autonomous_development(
+                query_for_handler, chat_backend_id, chat_model_name,
+                specialized_backend_id, specialized_model_name,
+                current_project_directory, project_id, session_id,
+                data_from_input_handler.get("task_type", "general")
+            )
 
-        elif intent == UserInputIntent.PLAN_THEN_CODE_REQUEST:  # type: ignore
-            if self._plan_and_code_coordinator:
-                logger.debug("Routing to PlanAndCodeCoordinator.")
-                self._plan_and_code_coordinator.start_autonomous_coding(
-                    user_query=query_for_handler,
-                    planner_backend=chat_backend_id,
-                    planner_model=chat_model_name,
-                    coder_backend=specialized_backend_id,
-                    coder_model=specialized_model_name,
-                    project_dir=current_project_directory,
+        elif intent == UserInputIntent.MICRO_TASK_REQUEST:
+            await self._route_to_micro_task_generation(
+                query_for_handler, chat_backend_id, chat_model_name,
+                specialized_backend_id, specialized_model_name,
+                current_project_directory, project_id, session_id
+            )
+
+        elif intent == UserInputIntent.FILE_CREATION_REQUEST:
+            await self._route_to_smart_file_creation(
+                original_full_query, data_from_input_handler.get("filename", "new_file.py"),
+                specialized_backend_id, specialized_temperature,
+                project_id, session_id
+            )
+
+        elif intent == UserInputIntent.PROJECT_ITERATION_REQUEST:
+            await self._route_to_project_iteration(
+                original_full_query, chat_history_for_llm, chat_backend_id,
+                chat_temperature, project_id, session_id,
+                project_name_for_context, project_description_for_context
+            )
+
+        elif intent == UserInputIntent.NORMAL_CHAT:
+            await self._route_to_normal_chat(
+                chat_history_for_llm, chat_backend_id, chat_temperature,
+                project_id, session_id
+            )
+
+        else:
+            logger.error(f"ChatRouter: Unknown intent '{intent.name}'")
+            await self._handle_unknown_intent(intent, project_id, session_id)
+
+    async def _route_to_conversational_planning(self,
+                                                user_input: str,
+                                                project_id: Optional[str],
+                                                session_id: Optional[str]):
+        """Route complex requests to conversational orchestrator"""
+        if self._conversation_orchestrator:
+            logger.debug("Routing to ConversationOrchestrator for complex planning")
+            await self._conversation_orchestrator.start_conversation(
+                user_input=user_input,
+                project_id=project_id,
+                session_id=session_id
+            )
+        else:
+            await self._handle_missing_handler("Conversational Planning", project_id, session_id)
+
+    async def _route_to_autonomous_development(self,
+                                               user_query: str,
+                                               planner_backend: str,
+                                               planner_model: str,
+                                               coder_backend: str,
+                                               coder_model: str,
+                                               project_dir: str,
+                                               project_id: Optional[str],
+                                               session_id: Optional[str],
+                                               task_type: str):
+        """Route to the enhanced Plan-and-Code coordinator"""
+        if self._plan_and_code_coordinator:
+            logger.debug("Routing to enhanced PlanAndCodeCoordinator")
+
+            # Determine task complexity to decide routing
+            complexity_score = self._assess_task_complexity(user_query)
+
+            if complexity_score >= 7:  # High complexity - use full autonomous development
+                success = self._plan_and_code_coordinator.start_autonomous_coding(
+                    user_query=user_query,
+                    planner_backend=planner_backend,
+                    planner_model=planner_model,
+                    coder_backend=coder_backend,
+                    coder_model=coder_model,
+                    project_dir=project_dir,
                     project_id=project_id,
                     session_id=session_id,
-                    task_type=data_from_input_handler.get("task_type", "general")
+                    task_type=task_type
                 )
+
+                if not success:
+                    logger.warning("Plan-and-Code coordinator could not start, falling back to micro-tasks")
+                    await self._route_to_micro_task_generation(
+                        user_query, planner_backend, planner_model,
+                        coder_backend, coder_model, project_dir,
+                        project_id, session_id
+                    )
             else:
-                await self._handle_missing_handler("Plan-then-Code", chat_history_for_llm, image_data, project_id,
-                                                   session_id, chat_backend_id, chat_model_name, chat_temperature)
-
-        elif intent == UserInputIntent.FILE_CREATION_REQUEST:  # type: ignore
-            if self._llm_request_handler:
-                logger.debug("Routing simple file creation to LlmRequestHandler.")
-                filename = data_from_input_handler.get("filename", "new_file.py")
-                # Construct the specialized prompt for file creation
-                # This is where a PromptBuilderService would be ideal.
-                prompt_for_file = self._build_file_creation_prompt(original_full_query, filename)
-
-                self._llm_request_handler.submit_simple_file_creation_request(
-                    prompt_text=prompt_for_file,
-                    filename=filename,
-                    backend_id=specialized_backend_id,  # Use specialized for code
-                    options={"temperature": specialized_temperature},
-                    project_id=project_id,  # type: ignore
-                    session_id=session_id  # type: ignore
+                # Medium complexity - route directly to micro-tasks
+                logger.info("Task complexity suggests micro-task approach")
+                await self._route_to_micro_task_generation(
+                    user_query, planner_backend, planner_model,
+                    coder_backend, coder_model, project_dir,
+                    project_id, session_id
                 )
-            else:
-                await self._handle_missing_handler("File Creation", chat_history_for_llm, image_data, project_id,
-                                                   session_id, chat_backend_id, chat_model_name, chat_temperature)
-
-        elif intent == UserInputIntent.PROJECT_ITERATION_REQUEST:  # type: ignore
-            if self._llm_request_handler:  # Using LlmRequestHandler for iteration for now
-                logger.debug("Routing project iteration request to LlmRequestHandler.")
-
-                project_context_str = f"Project: {project_name_for_context or 'Current Project'}"
-                if project_description_for_context: project_context_str += f"\nDescription: {project_description_for_context}"
-
-                iteration_prompt = self._build_project_iteration_prompt(original_full_query, project_context_str)
-
-                # For iteration, the history should be used, and the iteration_prompt becomes the new user message
-                # or a system message augmenting the user's request.
-                # Let's prepend it as a system message before the user's actual iteration query.
-                # The `chat_history_for_llm` already contains the user's latest query.
-                # A better approach might be to have LlmRequestHandler.submit_project_iteration_request
-                # that takes the iteration_prompt and the history separately.
-
-                # For now, create a new history list starting with the iteration prompt
-                # This might lose some conversational nuance if chat_history_for_llm isn't used effectively.
-                # This part needs careful thought on how iteration prompts integrate with ongoing history.
-
-                # Option: Treat the iteration_prompt as the primary instruction.
-                history_for_iteration_request = [ChatMessage(role=USER_ROLE, parts=[iteration_prompt])]  # type: ignore
-                # If image_data is relevant to iteration, it should be part of the iteration_prompt construction.
-
-                self._llm_request_handler.submit_project_iteration_request(
-                    iteration_prompt_text=iteration_prompt,  # Pass the fully formed prompt
-                    history_for_context=chat_history_for_llm,  # Pass existing history for broader context
-                    backend_id=chat_backend_id,  # Iteration is more analytical
-                    options={"temperature": chat_temperature + 0.1 if chat_temperature <= 1.9 else 2.0},
-                    # Slightly more creative
-                    project_id=project_id,  # type: ignore
-                    session_id=session_id  # type: ignore
-                )
-            else:
-                await self._handle_missing_handler("Project Iteration", chat_history_for_llm, image_data, project_id,
-                                                   session_id, chat_backend_id, chat_model_name, chat_temperature)
-
-        elif intent == UserInputIntent.NORMAL_CHAT:  # type: ignore
-            if self._llm_request_handler:
-                logger.debug("Routing normal chat to LlmRequestHandler.")
-                # The chat_history_for_llm already includes the latest user message.
-                self._llm_request_handler.submit_normal_chat_request(
-                    history_to_send=chat_history_for_llm,
-                    backend_id=chat_backend_id,
-                    options={"temperature": chat_temperature},
-                    project_id=project_id,  # type: ignore
-                    session_id=session_id  # type: ignore
-                )
-            else:
-                await self._handle_missing_handler("Normal Chat", chat_history_for_llm, image_data, project_id,
-                                                   session_id, chat_backend_id, chat_model_name, chat_temperature,
-                                                   is_critical_fallback=True)
         else:
-            logger.error(f"ChatRouter: Unknown intent '{intent.name}'. Cannot route request.")
-            if project_id and session_id and self._event_bus:
-                from models.chat_message import ChatMessage, ERROR_ROLE  # type: ignore
-                err_msg = ChatMessage(role=ERROR_ROLE, parts=[
-                    f"[System Error: Could not understand request type '{intent.name}'.]"])  # type: ignore
-                self._event_bus.newMessageAddedToHistory.emit(project_id, session_id, err_msg)
+            await self._handle_missing_handler("Plan-and-Code", project_id, session_id)
 
-    async def _handle_missing_handler(self, handler_name: str,
-                                      chat_history_for_llm: List['ChatMessage'],
-                                      image_data: List[Dict[str, Any]],
-                                      project_id: Optional[str], session_id: Optional[str],
-                                      chat_backend_id: str, chat_model_name: str, chat_temperature: float,
-                                      is_critical_fallback: bool = False):
-        logger.error(f"{handler_name} intent detected but the handler is not set in ChatRouter.")
-        if is_critical_fallback and project_id and session_id and hasattr(self, '_event_bus'):
-            from models.chat_message import ChatMessage, ERROR_ROLE  # type: ignore
-            err_msg = ChatMessage(role=ERROR_ROLE,
-                                  parts=[f"[System Error: {handler_name} handler not available.]"])  # type: ignore
-            self._event_bus.newMessageAddedToHistory.emit(project_id, session_id, err_msg)  # type: ignore
-        elif self._llm_request_handler:  # Fallback to normal chat if possible
-            logger.warning(f"Falling back to normal chat for missing {handler_name} handler.")
-            self._llm_request_handler.submit_normal_chat_request(
-                history_to_send=chat_history_for_llm,  # This history includes the original user query
-                backend_id=chat_backend_id,
-                options={"temperature": chat_temperature},
-                project_id=project_id,  # type: ignore
-                session_id=session_id  # type: ignore
+    async def _route_to_micro_task_generation(self,
+                                              user_query: str,
+                                              planning_backend: str,
+                                              planning_model: str,
+                                              coding_backend: str,
+                                              coding_model: str,
+                                              project_dir: str,
+                                              project_id: Optional[str],
+                                              session_id: Optional[str]):
+        """Route to enhanced micro-task coordinator"""
+        if self._micro_task_coordinator:
+            logger.debug("Routing to enhanced MicroTaskCoordinator")
+
+            success = self._micro_task_coordinator.start_micro_task_generation(
+                user_query=user_query,
+                planning_backend=planning_backend,
+                planning_model=planning_model,
+                coding_backend=coding_backend,
+                coding_model=coding_model,
+                project_dir=project_dir,
+                project_id=project_id,
+                session_id=session_id
             )
-        # else: no handler at all, error already logged.
 
-    # --- Prompt Construction Helpers (Ideally move to a PromptBuilderService) ---
-    def _build_file_creation_prompt(self, original_query: str, filename: str) -> str:
-        # This is a simplified adaptation. A dedicated PromptBuilder would be better.
-        # It needs access to the various specific coding prompts from llm_prompts.
-        # For now, using a generic approach.
-        task_type = self._infer_task_type_from_filename(filename)  # Basic inference
+            if not success:
+                logger.error("Micro-task coordinator could not start")
+                await self._handle_missing_handler("Micro-Task Generation", project_id, session_id, is_critical=True)
+        else:
+            await self._handle_missing_handler("Micro-Task Generation", project_id, session_id, is_critical=True)
 
-        specific_prompt_template = getattr(llm_prompts, 'GENERAL_CODING_PROMPT', "")  # type: ignore
-        if task_type == 'api':
-            specific_prompt_template = getattr(llm_prompts, 'API_DEVELOPMENT_PROMPT',
-                                               specific_prompt_template)  # type: ignore
-        elif task_type == 'ui':
-            specific_prompt_template = getattr(llm_prompts, 'UI_DEVELOPMENT_PROMPT',
-                                               specific_prompt_template)  # type: ignore
-        # Add more task types...
+    async def _route_to_smart_file_creation(self,
+                                            user_query: str,
+                                            filename: str,
+                                            backend_id: str,
+                                            temperature: float,
+                                            project_id: Optional[str],
+                                            session_id: Optional[str]):
+        """Enhanced file creation with intelligence"""
+        if self._llm_request_handler:
+            logger.debug("Routing to enhanced file creation")
 
-        return (f"Generate the complete Python code for a new file named '{filename}'.\n"
-                f"User's original request for context: \"{original_query}\"\n\n"
-                f"Follow these specific coding guidelines if applicable:\n{specific_prompt_template}\n\n"
-                f"Ensure the output is ONLY the code itself, enclosed in a single Python code block (```python ... ```). "
-                f"The code must be complete, executable, and adhere to high quality standards including error handling, "
-                f"type hints, docstrings, and comments where necessary.")
+            # Build intelligent file creation prompt using existing prompt system
+            smart_prompt = self._build_smart_file_creation_prompt(user_query, filename)
 
-    def _build_project_iteration_prompt(self, original_query: str, project_context_str: Optional[str]) -> str:
-        base_prompt = getattr(llm_prompts, 'ENHANCED_CODING_SYSTEM_PROMPT',
-                              "You are an expert software architect...")  # type: ignore
-        iteration_header = (
-            "## PROJECT ITERATION/MODIFICATION TASK\n"
-            "Based on the user's request and the provided project context, generate the necessary code changes or additions.\n"
-        )
-        user_request_section = f"**User's Request**: {original_query}\n\n"
-        project_context_section = f"**Existing Project Context Summary**:\n{project_context_str or 'No specific project context provided.'}\n\n"
-        rag_placeholder = "**Relevant Code Snippets from Project (if RAG is used, this will be populated by the system)**:\n[RAG_CONTEXT_PLACEHOLDER]\n\n"
-        instructions = (
-            "**Your Task Details**:\n"
-            "1.  Carefully analyze the user's request and the existing project context.\n"
-            "2.  If modifying existing files: Clearly state the filename. Provide the *complete, updated code* for that file in a fenced Python code block. Do NOT output only diffs or snippets unless explicitly asked.\n"
-            "3.  If creating new files: Provide the complete code for each new file in its own fenced Python code block, clearly stating the filename.\n"
-            "4.  If providing analysis or explanation, do so concisely before any code blocks.\n"
-            "5.  Adhere to high code quality standards (PEP 8, type hints, docstrings, error handling, comments).\n"
-            "6.  If RAG context is present above, prioritize it for understanding existing code.\n\n"
-            "**Output Format for Code**:\n"
-            "  `### FILENAME: path/to/your/file.py`\n"
-            "  ` ```python\n  # ... your complete code for this file ...\n  ``` `\n"
-        )
-        return f"{base_prompt}\n\n{iteration_header}{user_request_section}{project_context_section}{rag_placeholder}{instructions}"
+            self._llm_request_handler.submit_simple_file_creation_request(
+                prompt_text=smart_prompt,
+                filename=filename,
+                backend_id=backend_id,
+                options={"temperature": temperature},
+                project_id=project_id,
+                session_id=session_id
+            )
+        else:
+            await self._handle_missing_handler("Smart File Creation", project_id, session_id)
 
-    def _infer_task_type_from_filename(self, filename: str) -> str:
-        # Duplicated from PlanAndCodeCoordinator - ideally, this is a shared utility.
-        fn_lower = filename.lower()
-        if "api" in fn_lower or "server" in fn_lower or "route" in fn_lower: return "api"
-        if "test" in fn_lower: return "test"
-        if "util" in fn_lower or "helper" in fn_lower: return "utility"
-        if "config" in fn_lower: return "config"
-        if "model" in fn_lower or "schema" in fn_lower: return "data"
-        if "ui" in fn_lower or "view" in fn_lower or "widget" in fn_lower: return "ui"
-        return "general"
-        return "general"
+    async def _route_to_project_iteration(self,
+                                          user_query: str,
+                                          chat_history: List['ChatMessage'],
+                                          backend_id: str,
+                                          temperature: float,
+                                          project_id: Optional[str],
+                                          session_id: Optional[str],
+                                          project_name: Optional[str],
+                                          project_description: Optional[str]):
+        """Route project iteration requests"""
+        if self._llm_request_handler:
+            logger.debug("Routing to project iteration")
+
+            # Build context-aware iteration prompt
+            iteration_prompt = self._build_project_iteration_prompt(
+                user_query, project_name, project_description
+            )
+
+            self._llm_request_handler.submit_project_iteration_request(
+                iteration_prompt_text=iteration_prompt,
+                history_for_context=chat_history,
+                backend_id=backend_id,
+                options={"temperature": temperature + 0.1},  # Slightly more creative
+                project_id=project_id,
+                session_id=session_id
+            )
+        else:
+            await self._handle_missing_handler("Project Iteration", project_id, session_id)
+
+    async def _route_to_normal_chat(self,
+                                    chat_history: List['ChatMessage'],
+                                    backend_id: str,
+                                    temperature: float,
+                                    project_id: Optional[str],
+                                    session_id: Optional[str]):
+        """Route normal chat requests"""
+        if self._llm_request_handler:
+            logger.debug("Routing to normal chat")
+            self._llm_request_handler.submit_normal_chat_request(
+                history_to_send=chat_history,
+                backend_id=backend_id,
+                options={"temperature": temperature},
+                project_id=project_id,
+                session_id=session_id
+            )
+        else:
+            await self._handle_missing_handler("Normal Chat", project_id, session_id, is_critical=True)
+
+    def _assess_task_complexity(self, user_query: str) -> int:
+        """Assess task complexity on a 1-10 scale to determine optimal routing"""
+        query_lower = user_query.lower()
+        complexity_score = 1
+
+        # Multi-file indicators
+        if any(word in query_lower for word in ['system', 'application', 'project', 'architecture']):
+            complexity_score += 3
+
+        # Multiple component indicators
+        if any(word in query_lower for word in ['api and', 'backend and', 'frontend and', 'database and']):
+            complexity_score += 2
+
+        # Advanced feature indicators
+        if any(word in query_lower for word in ['authentication', 'authorization', 'microservice', 'scalable']):
+            complexity_score += 2
+
+        # Length-based complexity
+        word_count = len(user_query.split())
+        if word_count > 20:
+            complexity_score += 1
+        if word_count > 50:
+            complexity_score += 1
+
+        return min(complexity_score, 10)
+
+    def _build_smart_file_creation_prompt(self, user_query: str, filename: str) -> str:
+        """Build intelligent file creation prompt using existing prompt system"""
+        # Determine file type from filename
+        file_ext = filename.lower().split('.')[-1] if '.' in filename else 'py'
+
+        # Select appropriate base prompt
+        base_prompt = llm_prompts.GENERAL_CODING_PROMPT
+
+        if any(word in filename.lower() for word in ['api', 'server', 'endpoint']):
+            base_prompt = llm_prompts.API_DEVELOPMENT_PROMPT
+        elif any(word in filename.lower() for word in ['data', 'process', 'etl', 'transform']):
+            base_prompt = llm_prompts.DATA_PROCESSING_PROMPT
+        elif any(word in filename.lower() for word in ['ui', 'widget', 'dialog', 'window']):
+            base_prompt = llm_prompts.UI_DEVELOPMENT_PROMPT
+        elif any(word in filename.lower() for word in ['util', 'helper', 'tool']):
+            base_prompt = llm_prompts.UTILITY_DEVELOPMENT_PROMPT
+
+        # Enhance with specific file context
+        enhanced_prompt = f"""Create a complete Python file named '{filename}'.
+
+**User Request**: {user_query}
+
+**File-Specific Requirements**:
+- The file must be production-ready and immediately executable
+- Include all necessary imports and dependencies
+- Follow the coding standards specified below
+- Implement comprehensive error handling and logging
+
+{base_prompt}
+
+**Critical**: Generate ONLY the complete Python code for {filename}. No explanations outside the code block."""
+
+        return enhanced_prompt
+
+    def _build_project_iteration_prompt(self,
+                                        user_query: str,
+                                        project_name: Optional[str],
+                                        project_description: Optional[str]) -> str:
+        """Build context-aware project iteration prompt"""
+        project_context = ""
+        if project_name:
+            project_context += f"**Project Name**: {project_name}\n"
+        if project_description:
+            project_context += f"**Project Description**: {project_description}\n"
+
+        iteration_prompt = f"""## PROJECT ITERATION/MODIFICATION REQUEST
+
+{project_context}
+
+**User's Iteration Request**: {user_query}
+
+**Task**: Analyze the request and provide the necessary code changes, additions, or modifications.
+
+**Instructions**:
+1. If modifying existing files: Provide the COMPLETE updated code for the entire file
+2. If creating new files: Provide complete code with proper integration
+3. If providing analysis: Be specific about implementation approach
+4. Follow the enhanced coding standards from the system prompt
+5. Ensure changes integrate properly with existing project structure
+
+**Output Format**:
+For each file affected:
+```
+### FILENAME: path/to/file.py
+```python
+# Complete file contents here
+```
+```
+
+Use the enhanced coding system prompt standards for all generated code."""
+
+        return iteration_prompt
+
+    async def _handle_missing_handler(self,
+                                      handler_name: str,
+                                      project_id: Optional[str],
+                                      session_id: Optional[str],
+                                      is_critical: bool = False):
+        """Handle cases where required handlers are not available"""
+        logger.error(f"{handler_name} handler not available in ChatRouter")
+
+        if project_id and session_id:
+            error_msg = ChatMessage(
+                role=ERROR_ROLE,
+                parts=[f"[System Error: {handler_name} handler not available]"]
+            )
+            # Would need access to event bus to emit this
+            # self._event_bus.newMessageAddedToHistory.emit(project_id, session_id, error_msg)
+
+        if is_critical:
+            logger.critical(f"Critical handler {handler_name} missing - core functionality unavailable")
+
+    async def _handle_unknown_intent(self,
+                                     intent: Any,
+                                     project_id: Optional[str],
+                                     session_id: Optional[str]):
+        """Handle unknown intents"""
+        logger.error(f"ChatRouter: Unknown intent '{intent.name}' - cannot route request")
+
+        if project_id and session_id:
+            error_msg = ChatMessage(
+                role=ERROR_ROLE,
+                parts=[f"[System Error: Unknown request type '{intent.name}']"]
+            )
+            # Would need access to event bus to emit this
+            # self._event_bus.newMessageAddedToHistory.emit(project_id, session_id, error_msg)

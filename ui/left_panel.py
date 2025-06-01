@@ -1,7 +1,7 @@
 # app/ui/left_panel.py
 import logging
 import os
-from typing import Optional, Dict, List, Any
+from typing import Optional, List
 
 from PySide6.QtCore import Qt, QSize, Slot
 from PySide6.QtGui import QFont, QIcon

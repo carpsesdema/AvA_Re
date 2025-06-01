@@ -4,7 +4,6 @@ import logging
 import os
 import signal
 import sys
-import traceback  # For detailed error logging
 from typing import Optional
 
 
@@ -71,7 +70,7 @@ try:
     from ui.main_window import MainWindow  # UI components are in app.ui
     from utils import constants  # For app name, version, icon paths etc.
     # Config needs to be imported early to set up env vars for libraries like sentence-transformers
-    import core.config  # This will execute the early setup in config.py
+    from core import config
 
 except ImportError as e_main_imports:
     logger.critical(f"Failed to import critical application modules: {e_main_imports}", exc_info=True)

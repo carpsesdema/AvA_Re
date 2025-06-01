@@ -140,7 +140,7 @@ class CodeAnalysisService:
         function_pattern = re.compile(r'^(\s*)(async\s+)?def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*?)\)\s*:', re.MULTILINE)
         class_pattern = re.compile(r'^(\s*)class\s+([a-zA-Z_][a-zA-Z0-9_]*)(\s*\((.*?)\))?\s*:', re.MULTILINE)
         import_pattern = re.compile(r'^(\s*)import\s+([a-zA-Z0-9_.,\s]+)', re.MULTILINE)
-        from_import_pattern = re.compile(r'^(\s*)from\s+([a-zA-Z0-9_.]+)\s+import\s+([a-zA-Z0-9_.,\s\*]+)', re.MULTILINE)
+        from_import_pattern = re.compile(r'^(\s*)from\s+([a-zA-Z0-9_.]+)\s+import\s+([a-zA-Z0-9_.,\s*]+)', re.MULTILINE)
 
 
         for line_num, line_text in enumerate(lines, 1):

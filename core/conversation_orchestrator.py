@@ -12,7 +12,7 @@ from PySide6.QtCore import QObject, Slot
 
 # Assuming UserInputHandler is now in app.core
 try:
-    from app.core.user_input_handler import UserInputHandler
+    from core.user_input_handler import UserInputHandler
 except ImportError:
     # Fallback if UserInputHandler isn't found immediately (e.g. during restructuring)
     UserInputHandler = type("UserInputHandler", (object,), {"_extract_filename_from_query": lambda self, query: None})
@@ -20,8 +20,8 @@ except ImportError:
 
 try:
     from core.event_bus import EventBus  # This should be app.core.event_bus if EventBus is in app/core
-    from app.models.chat_message import ChatMessage, USER_ROLE, MODEL_ROLE, SYSTEM_ROLE
-    from app.llm.backend_coordinator import BackendCoordinator
+    from models.chat_message import ChatMessage, USER_ROLE, MODEL_ROLE, SYSTEM_ROLE
+    from llm.backend_coordinator import BackendCoordinator
     from utils import constants
     # Prompts would be imported from app.llm.prompts if specific ones were used here
     # from app.llm import prompts as llm_prompts
@@ -38,7 +38,7 @@ except ImportError as e:
 
 if TYPE_CHECKING:
     # This import is fine for type checking even if ChatManager is not fully defined yet
-    from app.core.chat_manager import ChatManager  # Assuming ChatManager will be in app.core
+    from core.chat_manager import ChatManager  # Assuming ChatManager will be in app.core
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ class ConversationOrchestrator(QObject):
 
     def set_dependencies(self, chat_manager: 'ChatManager', backend_coordinator: BackendCoordinator):
         """Sets dependencies required by the orchestrator."""
-        from app.core.chat_manager import ChatManager  # Local import for type check
+        from core.chat_manager import ChatManager  # Local import for type check
         if not isinstance(chat_manager, ChatManager):
             raise TypeError("Invalid ChatManager instance provided to ConversationOrchestrator.")
         if not isinstance(backend_coordinator, BackendCoordinator):  # type: ignore

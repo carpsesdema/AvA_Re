@@ -2,10 +2,10 @@
 import logging
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal, Slot, QTimer, QSize  # Added QSize
-from PySide6.QtGui import QFont, QFontMetrics, QTextOption, QKeyEvent, QPalette, \
+from PySide6.QtCore import Qt, Signal, Slot, QTimer  # Added QSize
+from PySide6.QtGui import QFont, QTextOption, QKeyEvent, QPalette, \
     QColor  # Added QPalette for placeholder text
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QTextEdit
+from PySide6.QtWidgets import QWidget, QTextEdit
 
 try:
     from utils import constants

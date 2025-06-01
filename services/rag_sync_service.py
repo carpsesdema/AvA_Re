@@ -2,7 +2,7 @@
 import logging
 import os
 import asyncio
-from typing import Optional, Dict, Set, List # Added List
+from typing import Optional, Dict, Set, List, Any  # Added List
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Slot, QTimer

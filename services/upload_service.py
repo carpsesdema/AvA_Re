@@ -3,7 +3,6 @@ import asyncio
 import datetime
 import logging
 import os
-import sys
 from html import escape
 from typing import List, Tuple, Optional, Set, Dict, Any
 
@@ -34,7 +33,8 @@ except Exception as e:
 try:
     from core.event_bus import EventBus  # Assuming EventBus might be used for status updates
     from utils import constants
-    from core.models import SYSTEM_ROLE, ChatMessage, ERROR_ROLE
+    from models.chat_message import ChatMessage
+    from models.message_enums import SYSTEM_ROLE, ERROR_ROLE
     from .chunking_service import ChunkingService
     from .vector_db_service import VectorDBService, GLOBAL_COLLECTION_ID
     from .file_handler_service import FileHandlerService
@@ -341,7 +341,7 @@ class UploadService:
                         overall_successfully_added_files.update(
                             files_added_names); total_embeddings_in_successful_batches += embs_count
                     else:
-                        any_db_batch_add_failure_occurred = True;
+                        any_db_batch_add_failure_occurred = True
                         total_embeddings_in_failed_batches += embs_count
                         for f_name_failed in current_batch_file_names_involved:
                             if f_name_failed not in processing_error_files_dict: db_failed_files_exclusive_set.add(
@@ -360,7 +360,7 @@ class UploadService:
                 overall_successfully_added_files.update(
                     files_added_names); total_embeddings_in_successful_batches += embs_count
             else:
-                any_db_batch_add_failure_occurred = True;
+                any_db_batch_add_failure_occurred = True
                 total_embeddings_in_failed_batches += embs_count
                 for f_name_failed in current_batch_file_names_involved:
                     if f_name_failed not in processing_error_files_dict: db_failed_files_exclusive_set.add(

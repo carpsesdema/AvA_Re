@@ -11,10 +11,10 @@ try:
     # Corrected paths assuming these are in the same 'ui' package or accessible
     from .chat_item_delegate import ChatItemDelegate
     from .chat_list_model import ChatListModel, ChatMessageRole  # ChatMessageRole is used here
-    # Models are in app.models
-    from app.models.chat_message import ChatMessage, SYSTEM_ROLE, ERROR_ROLE
+    # Models are in models
+    from models.chat_message import ChatMessage, SYSTEM_ROLE, ERROR_ROLE
     # Enums for message state
-    from app.models.message_enums import MessageLoadingState
+    from models.message_enums import MessageLoadingState
 except ImportError as e_cda:
     logging.getLogger(__name__).critical(f"Critical import error in ChatDisplayArea: {e_cda}", exc_info=True)
     # Fallback types for type hinting

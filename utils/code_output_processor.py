@@ -1,9 +1,9 @@
 # utils/code_output_processor.py
+import ast  # For validating Python syntax
 import logging
 import re
-import ast  # For validating Python syntax
-from typing import Optional, List, Tuple, Union, Dict  # Added Union
 from enum import Enum, auto
+from typing import Optional, List, Tuple, Dict, Sized  # Added Union
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +216,7 @@ class CodeOutputProcessor:
 
         return cleaned_text.strip()
 
-    def _extract_python_block_intelligently(self, text: str) -> Optional[str]:
+    def _extract_python_block_intelligently(self, text: str) -> Sized | None:
         """Tries to find a coherent block of Python code without fences."""
         lines = text.split('\n')
         potential_blocks: List[List[str]] = []

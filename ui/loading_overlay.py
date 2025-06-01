@@ -3,7 +3,7 @@ import logging
 import os
 from typing import Optional
 
-from PySide6.QtCore import Qt, QTimer, QSize  # Added QSize
+from PySide6.QtCore import Qt  # Added QSize
 from PySide6.QtGui import QMovie, QFont, QPaintEvent, QPainter, QColor  # Added QPaintEvent, QPainter, QColor
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel  # Removed QHBoxLayout as it's not used directly
 

@@ -2,12 +2,11 @@
 import asyncio
 import logging
 import os
-import subprocess
-import sys # For sys.stdout.encoding
+import sys  # For sys.stdout.encoding
 import time
 import uuid
-from typing import Optional, List, Set, Dict, Any # Keep Any if needed for future extensions
 from pathlib import Path
+from typing import Optional, List, Dict  # Keep Any if needed for future extensions
 
 from PySide6.QtCore import QObject, Slot
 

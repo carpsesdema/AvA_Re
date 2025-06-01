@@ -9,10 +9,10 @@ try:
     # Assuming BackendInterface and BackendCoordinator are in the same package or accessible
     from .backend_interface import BackendInterface
     from .backend_coordinator import BackendCoordinator
-    # Models are in app.models
-    from app.models.chat_message import ChatMessage
+    # Models are in models
+    from models.chat_message import ChatMessage
     # UserInputHandler might be used for initial query classification
-    from app.core.user_input_handler import UserInputHandler, ProcessedInput, UserInputIntent
+    from core.user_input_handler import UserInputHandler, ProcessedInput, UserInputIntent
     # EventBus might be used if this model needs to emit specific events
     # from core.event_bus import EventBus
 except ImportError as e_hm:
