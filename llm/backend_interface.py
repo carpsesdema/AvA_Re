@@ -4,7 +4,7 @@ from typing import List, Optional, AsyncGenerator, Dict, Any, Tuple
 
 try:
     # Assuming ChatMessage will be in app.models.chat_message
-    from app.models.chat_message import ChatMessage
+    from models.chat_message import ChatMessage
 except ImportError:
     # Fallback for type hinting if ChatMessage is not available at this point
     # This might happen if files are being created out of order or in a flat structure temporarily

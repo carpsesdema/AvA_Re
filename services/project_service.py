@@ -10,11 +10,11 @@ from typing import List, Optional, Dict
 from PySide6.QtCore import QObject, Signal
 
 try:
-    # Assuming models are in app.models now
-    from app.models.project_models import Project, ChatSession
-    from app.models.chat_message import ChatMessage
+    # Assuming models are in models now
+    from models.project_models import Project, ChatSession
+    from models.chat_message import ChatMessage
     # Enums are also in models
-    from app.models.message_enums import MessageLoadingState
+    from models.message_enums import MessageLoadingState
     from utils import constants
 except ImportError as e:
     logging.getLogger(__name__).critical(f"Critical import error in ProjectService: {e}", exc_info=True)

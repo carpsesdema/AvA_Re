@@ -30,8 +30,8 @@ pypdf
 numpy
 
 # Optional, but good for development:
-# autopep8
-# flake8
-# mypy
-# pytest
-# coverage
+ autopep8
+ flake8
+ mypy
+ pytest
+ coverage

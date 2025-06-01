@@ -5,9 +5,9 @@ import re
 from typing import List, Optional, Set, Tuple, Dict, Any
 
 try:
-    # Assuming UploadService and VectorDBService are in app.services
-    from app.services.upload_service import UploadService
-    from app.services.vector_db_service import VectorDBService, GLOBAL_COLLECTION_ID  # type: ignore
+    # Assuming UploadService and VectorDBService are in services
+    from services.upload_service import UploadService
+    from services.vector_db_service import VectorDBService, GLOBAL_COLLECTION_ID  # type: ignore
     # Constants from utils
     from utils import constants
 except ImportError as e_rag:

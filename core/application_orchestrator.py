@@ -1,7 +1,7 @@
 # app/core/application_orchestrator.py
 import logging
 import os
-from typing import Optional, Dict, Any, TYPE_CHECKING, List
+from typing import Optional, Any, TYPE_CHECKING, List
 
 from PySide6.QtCore import QObject, Slot
 

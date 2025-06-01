@@ -1,4 +1,4 @@
-# app/services/upload_service.py
+# services/upload_service.py
 import asyncio
 import datetime
 import logging
@@ -31,10 +31,11 @@ except Exception as e:
         f"UploadService: SentenceTransformer library import failed ({e}). RAG will likely fail.", exc_info=True)
 
 try:
-    from core.event_bus import EventBus  # Assuming EventBus might be used for status updates
+    from core.event_bus import EventBus
     from utils import constants
-    from models.chat_message import ChatMessage
-    from models.message_enums import SYSTEM_ROLE, ERROR_ROLE
+    from models.chat_message import ChatMessage, SYSTEM_ROLE, ERROR_ROLE # CORRECTED IMPORT
+    # MessageLoadingState is not directly used here, so its import can be removed if not needed elsewhere by this file
+    # from models.message_enums import MessageLoadingState
     from .chunking_service import ChunkingService
     from .vector_db_service import VectorDBService, GLOBAL_COLLECTION_ID
     from .file_handler_service import FileHandlerService
@@ -47,7 +48,7 @@ except ImportError as e_upload_service:
                      {"RAG_CHUNK_SIZE": 1000, "RAG_CHUNK_OVERLAP": 150, "ALLOWED_TEXT_EXTENSIONS": set(),
                       "DEFAULT_IGNORED_DIRS": set(), "MAX_SCAN_DEPTH": 5, "RAG_MAX_FILE_SIZE_MB": 50})
     ChatMessage = type("ChatMessage", (object,), {})
-    SYSTEM_ROLE, ERROR_ROLE = "system", "error"
+    SYSTEM_ROLE, ERROR_ROLE = "system", "error" # Fallback
     ChunkingService = type("ChunkingService", (object,), {})
     VectorDBService = type("VectorDBService", (object,), {})
     GLOBAL_COLLECTION_ID = "global_knowledge_fallback_us"
@@ -79,14 +80,14 @@ class UploadService:
             return
 
         try:
-            self._file_handler_service = FileHandlerService()
-            self._chunking_service = ChunkingService(
+            self._file_handler_service = FileHandlerService() # type: ignore
+            self._chunking_service = ChunkingService( # type: ignore
                 chunk_size=getattr(constants, 'RAG_CHUNK_SIZE', 1000),
                 chunk_overlap=getattr(constants, 'RAG_CHUNK_OVERLAP', 150)
             )
-            self._code_analysis_service = CodeAnalysisService()
+            self._code_analysis_service = CodeAnalysisService() # type: ignore
             # Initialize VectorDB with a placeholder dimension; it will be updated
-            self._vector_db_service = VectorDBService(index_dimension=384)  # Default for MiniLM
+            self._vector_db_service = VectorDBService(index_dimension=384)  # Default for MiniLM # type: ignore
 
             self._start_embedder_initialization()  # Initialize embedder in the background
 
@@ -111,14 +112,14 @@ class UploadService:
             loop = asyncio.get_event_loop()
             self._embedder = await loop.run_in_executor(
                 None,  # Uses default ThreadPoolExecutor
-                lambda: SentenceTransformer(DEFAULT_EMBEDDING_MODEL)
+                lambda: SentenceTransformer(DEFAULT_EMBEDDING_MODEL) # type: ignore
             )
 
             if self._embedder:
                 logger.info("SentenceTransformer initialized successfully.")
                 # Test embedding and get dimension
                 test_embedding = await loop.run_in_executor(None,
-                                                            lambda: self._embedder.encode(["test"]))  # type: ignore
+                                                            lambda: self._embedder.encode(["test"])) # type: ignore
                 if test_embedding is not None and hasattr(test_embedding, 'shape') and len(test_embedding.shape) > 1:
                     self._index_dim = test_embedding.shape[1]
                     logger.info(f"Detected embedding dimension: {self._index_dim}")
@@ -126,7 +127,7 @@ class UploadService:
                         self._vector_db_service._index_dim = self._index_dim  # Update VDB service
                     self._embedder_ready = True
                     # Check if VDB service is also ready (it should be if client init was okay)
-                    self._dependencies_ready = self._vector_db_service.is_ready() if self._vector_db_service else False
+                    self._dependencies_ready = self._vector_db_service.is_ready() if self._vector_db_service else False # type: ignore
                     if self._dependencies_ready:
                         logger.info("UploadService fully ready after background embedder initialization.")
                         self._emit_rag_status(True, "RAG: Ready ✓", "#4ade80")
@@ -148,15 +149,15 @@ class UploadService:
 
     def _emit_rag_status(self, is_ready: bool, message: str, color: str):
         try:
-            event_bus = EventBus.get_instance()
-            event_bus.ragStatusChanged.emit(is_ready, message, color)
+            event_bus = EventBus.get_instance() # type: ignore
+            event_bus.ragStatusChanged.emit(is_ready, message, color) # type: ignore
         except Exception as e_emit:
             logger.error(f"Failed to emit RAG status change: {e_emit}")
 
     def is_vector_db_ready(self, collection_id: Optional[str] = None) -> bool:
         if not self._embedder_ready or not self._dependencies_ready or not self._vector_db_service:
             return False
-        return self._vector_db_service.is_ready(collection_id)
+        return self._vector_db_service.is_ready(collection_id) # type: ignore
 
     async def wait_for_embedder_ready(self, timeout_seconds: float = 30.0) -> bool:
         if self._embedder_ready: return True
@@ -187,7 +188,7 @@ class UploadService:
         try:
             logger.info(
                 f"Sending batch of {len(batch_contents)} docs from {len(files_in_this_batch_names)} files to coll '{collection_id}'...")
-            success = self._vector_db_service.add_embeddings(collection_id, batch_contents, batch_embeddings,
+            success = self._vector_db_service.add_embeddings(collection_id, batch_contents, batch_embeddings, # type: ignore
                                                              batch_metadatas)
             if success:
                 logger.info(
@@ -202,41 +203,40 @@ class UploadService:
                 f"Exception during batch add to coll '{collection_id}': {e}. Files: {files_in_this_batch_names}")
             return False, set(), 0
 
-    async def process_files_for_context_async(self, file_paths: List[str], collection_id: str) -> Optional[ChatMessage]:
+    async def process_files_for_context_async(self, file_paths: List[str], collection_id: str) -> Optional[ChatMessage]: # type: ignore
         if not await self.wait_for_embedder_ready():
-            return ChatMessage(role=ERROR_ROLE,
-                               parts=["[Error: RAG embedder not ready. Please try again.]"])  # type: ignore
+            return ChatMessage(role=ERROR_ROLE, # type: ignore
+                               parts=["[Error: RAG embedder not ready. Please try again.]"])
         return self.process_files_for_context(file_paths, collection_id)
 
-    def process_files_for_context(self, file_paths: List[str], collection_id: str) -> Optional[
-        ChatMessage]:  # type: ignore
+    def process_files_for_context(self, file_paths: List[str], collection_id: str) -> Optional[ChatMessage]:  # type: ignore
         if not collection_id:
             logger.error("UploadService: process_files_for_context called without a collection_id.")
-            return ChatMessage(role=ERROR_ROLE,
-                               parts=["[System Error: Collection ID for RAG processing is missing.]"])  # type: ignore
+            return ChatMessage(role=ERROR_ROLE, # type: ignore
+                               parts=["[System Error: Collection ID for RAG processing is missing.]"])
         if not isinstance(file_paths, list):
-            return ChatMessage(role=ERROR_ROLE,
-                               parts=["[System Error: Invalid input provided for file paths.]"])  # type: ignore
+            return ChatMessage(role=ERROR_ROLE, # type: ignore
+                               parts=["[System Error: Invalid input provided for file paths.]"])
 
         num_input_files = len(file_paths)
         logger.info(f"Processing {num_input_files} files for RAG collection '{collection_id}'...")
 
         if not self._embedder_ready or not self._embedder:
             logger.error("UploadService: Embedder not ready for file processing.")
-            return ChatMessage(role=ERROR_ROLE, parts=[
-                "[Error: RAG embedder not ready. Please wait for initialization.]"])  # type: ignore
+            return ChatMessage(role=ERROR_ROLE, parts=[ # type: ignore
+                "[Error: RAG embedder not ready. Please wait for initialization.]"])
         if not self._dependencies_ready:
             logger.error("UploadService: Core dependencies (VDB, services) not ready. Cannot process files for RAG.")
-            return ChatMessage(role=ERROR_ROLE,
-                               parts=["[Error: RAG core components failed to initialize.]"])  # type: ignore
+            return ChatMessage(role=ERROR_ROLE, # type: ignore
+                               parts=["[Error: RAG core components failed to initialize.]"])
         if not self.is_vector_db_ready(collection_id):
             logger.error(f"UploadService: Vector DB/collection '{collection_id}' not ready. Cannot process files.")
-            return ChatMessage(role=ERROR_ROLE,
-                               parts=[f"[Error: RAG DB/collection '{collection_id}' not ready.]"])  # type: ignore
+            return ChatMessage(role=ERROR_ROLE, # type: ignore
+                               parts=[f"[Error: RAG DB/collection '{collection_id}' not ready.]"])
         if not all([self._file_handler_service, self._chunking_service, self._code_analysis_service]):
             logger.error("UploadService: One or more internal services are None.")
-            return ChatMessage(role=ERROR_ROLE,
-                               parts=["[System Error: RAG processing sub-components not ready.]"])  # type: ignore
+            return ChatMessage(role=ERROR_ROLE, # type: ignore
+                               parts=["[System Error: RAG processing sub-components not ready.]"])
 
         overall_successfully_added_files: Set[str] = set()
         processing_error_files_dict: Dict[str, str] = {}
@@ -259,7 +259,7 @@ class UploadService:
             if not os.path.isfile(file_path): processing_error_files_dict[escape(display_name)] = "Not a File"; continue
 
             logger.info(f"  Processing [{i + 1}/{num_input_files}]: {display_name} for collection '{collection_id}'")
-            read_result = self._file_handler_service.read_file_content(file_path)
+            read_result = self._file_handler_service.read_file_content(file_path) # type: ignore
             if not read_result or len(read_result) != 3: processing_error_files_dict[
                 escape(display_name)] = "Internal Read Error"; continue
             content, file_type, error_msg = read_result
@@ -269,9 +269,9 @@ class UploadService:
 
             code_structures: List[Dict[str, Any]] = []
             file_ext = os.path.splitext(file_path)[1].lower()
-            if file_ext == '.py' and self._code_analysis_service and content:
+            if file_ext == '.py' and self._code_analysis_service and content: # type: ignore
                 try:
-                    code_structures = self._code_analysis_service.parse_python_structures(content, file_path)
+                    code_structures = self._code_analysis_service.parse_python_structures(content, file_path) # type: ignore
                 except Exception as e_code_parse:
                     logger.warning(f"Error parsing code structures for {display_name}: {e_code_parse}", exc_info=True)
                     processing_error_files_dict[escape(display_name)] = "Code Parse Error"
@@ -288,7 +288,7 @@ class UploadService:
             text_to_chunk = content if content else ""
 
             try:
-                chunks = self._chunking_service.chunk_document(text_to_chunk, source_id=file_path, file_ext=file_ext)
+                chunks = self._chunking_service.chunk_document(text_to_chunk, source_id=file_path, file_ext=file_ext) # type: ignore
                 if not chunks and text_to_chunk.strip():  # If content existed but no chunks were made
                     no_content_files.add(escape(display_name))
                     continue
@@ -319,15 +319,15 @@ class UploadService:
                     if text_to_chunk.strip(): no_content_files.add(escape(display_name))
                     continue
 
-                embeddings_np = self._embedder.encode(file_specific_chunk_contents,
-                                                      show_progress_bar=False)  # type: ignore
-                if not isinstance(embeddings_np, np.ndarray) or embeddings_np.ndim != 2:
+                embeddings_np = self._embedder.encode(file_specific_chunk_contents, # type: ignore
+                                                      show_progress_bar=False)
+                if not isinstance(embeddings_np, np.ndarray) or embeddings_np.ndim != 2: # type: ignore
                     logger.error(f"Embedder did not return a 2D numpy array for {display_name}. Skipping file.")
                     processing_error_files_dict[escape(display_name)] = "Embedding Error"
                     continue
 
                 current_batch_contents.extend(file_specific_chunk_contents)
-                current_batch_embeddings.extend(embeddings_np.tolist())
+                current_batch_embeddings.extend(embeddings_np.tolist()) # type: ignore
                 current_batch_metadatas.extend(file_specific_metadatas)
                 current_batch_file_names_involved.add(escape(display_name))
 
@@ -367,8 +367,8 @@ class UploadService:
                         f_name_failed)
 
         # Construct summary message
-        if num_input_files == 0: return ChatMessage(role=SYSTEM_ROLE, parts=[
-            f"[RAG Upload: No files provided for collection '{collection_id}'.]"])  # type: ignore
+        if num_input_files == 0: return ChatMessage(role=SYSTEM_ROLE, parts=[ # type: ignore
+            f"[RAG Upload: No files provided for collection '{collection_id}'.]"])
 
         status_notes = []
         if overall_successfully_added_files: status_notes.append(
@@ -403,8 +403,7 @@ class UploadService:
 
         summary_text = " ".join(summary_parts)
         logger.info(f"UploadService: Finished processing for collection '{collection_id}'. Final: {summary_text}")
-        return ChatMessage(role=message_role, parts=[summary_text], timestamp=datetime.datetime.now().isoformat(),
-                           # type: ignore
+        return ChatMessage(role=message_role, parts=[summary_text], timestamp=datetime.datetime.now().isoformat(), # type: ignore
                            metadata={"upload_summary_v5_final": {
                                # Changed key to avoid potential type conflicts if old keys exist
                                "input_files": num_input_files,
@@ -423,17 +422,17 @@ class UploadService:
         logger.info(f"Processing directory '{dir_path}' for RAG collection '{collection_id}'")
         if not collection_id:
             logger.error("UploadService: process_directory_for_context called without a collection_id.")
-            return ChatMessage(role=ERROR_ROLE,
-                               parts=["[System Error: Collection ID for RAG processing is missing.]"])  # type: ignore
+            return ChatMessage(role=ERROR_ROLE, # type: ignore
+                               parts=["[System Error: Collection ID for RAG processing is missing.]"])
         try:
             if not os.path.isdir(dir_path):
-                return ChatMessage(role=ERROR_ROLE,
-                                   parts=[f"[Error: Not a directory: '{os.path.basename(dir_path)}']"])  # type: ignore
+                return ChatMessage(role=ERROR_ROLE, # type: ignore
+                                   parts=[f"[Error: Not a directory: '{os.path.basename(dir_path)}']"])
 
             if not self._file_handler_service:  # Add this check
                 logger.error("UploadService: FileHandlerService not initialized in process_directory_for_context.")
-                return ChatMessage(role=ERROR_ROLE,
-                                   parts=["[System Error: File handling service not ready.]"])  # type: ignore
+                return ChatMessage(role=ERROR_ROLE, # type: ignore
+                                   parts=["[System Error: File handling service not ready.]"])
 
             valid_files, skipped_scan_info = self._scan_directory(dir_path)
             if not valid_files:
@@ -447,16 +446,16 @@ class UploadService:
             process_msg_obj = self.process_files_for_context(valid_files, collection_id=collection_id)
             if process_msg_obj and skipped_scan_info:  # Add scan issue info to the processing message
                 scan_issue_txt = f"{len(skipped_scan_info)} items skipped/error in dir scan."
-                if process_msg_obj.metadata: process_msg_obj.metadata[
-                    "dir_scan_issues"] = scan_issue_txt  # type: ignore
-                if process_msg_obj.parts and isinstance(process_msg_obj.parts[0], str):  # type: ignore
-                    process_msg_obj.parts[0] = process_msg_obj.parts[0].rstrip(
-                        ' .]') + f" | DirScan: {scan_issue_txt}]"  # type: ignore
+                if process_msg_obj.metadata: process_msg_obj.metadata[ # type: ignore
+                    "dir_scan_issues"] = scan_issue_txt
+                if process_msg_obj.parts and isinstance(process_msg_obj.parts[0], str): # type: ignore
+                    process_msg_obj.parts[0] = process_msg_obj.parts[0].rstrip( # type: ignore
+                        ' .]') + f" | DirScan: {scan_issue_txt}]"
             return process_msg_obj
         except Exception as e:
             logger.exception(f"CRITICAL ERROR processing directory '{dir_path}' for collection '{collection_id}': {e}")
-            return ChatMessage(role=ERROR_ROLE, parts=[
-                f"[System: Critical error processing directory '{os.path.basename(dir_path)}' for collection '{collection_id}'.]"])  # type: ignore
+            return ChatMessage(role=ERROR_ROLE, parts=[ # type: ignore
+                f"[System: Critical error processing directory '{os.path.basename(dir_path)}' for collection '{collection_id}'.]"])
 
     def query_vector_db(self, query_text: str, collection_ids: List[str], n_results: int = constants.RAG_NUM_RESULTS) -> \
     List[Dict[str, Any]]:  # type: ignore
@@ -468,7 +467,7 @@ class UploadService:
         if not collection_ids:
             logger.warning(
                 "UploadService.query_vector_db called with empty collection_ids, defaulting to GLOBAL_COLLECTION_ID.")
-            collection_ids = [GLOBAL_COLLECTION_ID]
+            collection_ids = [GLOBAL_COLLECTION_ID] # type: ignore
 
         all_results: List[Dict[str, Any]] = []
         try:
@@ -476,9 +475,9 @@ class UploadService:
             if not isinstance(query_embedding_np, np.ndarray) or query_embedding_np.ndim != 2 or \
                     query_embedding_np.shape[1] != self._index_dim:
                 logger.error(
-                    f"Failed to generate valid query embedding or dimension mismatch. Expected {self._index_dim}, got shape {query_embedding_np.shape if isinstance(query_embedding_np, np.ndarray) else 'N/A'}")
+                    f"Failed to generate valid query embedding or dimension mismatch. Expected {self._index_dim}, got shape {query_embedding_np.shape if isinstance(query_embedding_np, np.ndarray) else 'N/A'}") # type: ignore
                 return []
-            query_embedding = query_embedding_np.tolist()
+            query_embedding = query_embedding_np.tolist() # type: ignore
 
             for coll_id in collection_ids:
                 if not coll_id or not isinstance(coll_id, str):
@@ -486,7 +485,7 @@ class UploadService:
                     continue
                 if self.is_vector_db_ready(coll_id):
                     logger.debug(f"Querying collection: {coll_id} for '{query_text[:30]}...'")
-                    coll_results = self._vector_db_service.search(coll_id, query_embedding, k=n_results)
+                    coll_results = self._vector_db_service.search(coll_id, query_embedding, k=n_results) # type: ignore
                     if coll_results:
                         for res_item in coll_results:  # Add source collection info
                             if 'metadata' not in res_item or res_item['metadata'] is None: res_item['metadata'] = {}
@@ -508,8 +507,8 @@ class UploadService:
 
     def _scan_directory(self, root_dir: str,
                         allowed_extensions: Set[str] = constants.ALLOWED_TEXT_EXTENSIONS,  # type: ignore
-                        ignored_dirs: Set[str] = constants.DEFAULT_IGNORED_DIRS) -> Tuple[
-        List[str], List[str]]:  # type: ignore
+                        ignored_dirs: Set[str] = constants.DEFAULT_IGNORED_DIRS) -> Tuple[ # type: ignore
+        List[str], List[str]]:
         valid_files: List[str] = []
         skipped_info: List[str] = []
         logger.info(f"Scanning directory: {root_dir}")

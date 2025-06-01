@@ -21,7 +21,7 @@ try:
 
     # UI components
     from .left_panel import LeftControlPanel
-    from .dialog_service import DialogService
+    from ui.dialogs.dialog_service import DialogService
     from .chat_display_area import ChatDisplayArea
     from .chat_input_bar import ChatInputBar
     from .loading_overlay import LoadingOverlay

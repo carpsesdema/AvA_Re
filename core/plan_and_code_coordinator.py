@@ -13,13 +13,13 @@ from PySide6.QtCore import QObject, Slot
 
 try:
     from core.event_bus import EventBus
-    from app.models.chat_message import ChatMessage, USER_ROLE, MODEL_ROLE, SYSTEM_ROLE, ERROR_ROLE
-    from app.models.message_enums import MessageLoadingState
-    from app.llm.backend_coordinator import BackendCoordinator
-    from app.services.llm_communication_logger import LlmCommunicationLogger
-    from app.core.code_output_processor import CodeOutputProcessor, CodeQualityLevel
-    from app.core.micro_task_coordinator import MicroTaskCoordinator
-    from app.llm import prompts as llm_prompts
+    from models.chat_message import ChatMessage, USER_ROLE, MODEL_ROLE, SYSTEM_ROLE, ERROR_ROLE
+    from models.message_enums import MessageLoadingState
+    from llm.backend_coordinator import BackendCoordinator
+    from services.llm_communication_logger import LlmCommunicationLogger
+    from core.code_output_processor import CodeOutputProcessor, CodeQualityLevel
+    from core.micro_task_coordinator import MicroTaskCoordinator
+    from llm import prompts as llm_prompts
     from utils import constants
 except ImportError as e_pacc:
     logging.getLogger(__name__).critical(f"PlanAndCodeCoordinator: Critical import error: {e_pacc}", exc_info=True)

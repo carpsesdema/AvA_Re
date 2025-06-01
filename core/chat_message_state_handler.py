@@ -8,8 +8,8 @@ try:
     from core.event_bus import EventBus
     # Assuming ChatListModel is in ui package as per previous structure
     from ui.chat_list_model import ChatListModel
-    from app.models.message_enums import MessageLoadingState # Corrected path
-    from app.models.chat_message import ChatMessage # Corrected path
+    from models.message_enums import MessageLoadingState # Corrected path
+    from models.chat_message import ChatMessage # Corrected path
 except ImportError as e_cmsh:
     logging.getLogger(__name__).critical(f"ChatMessageStateHandler: Critical import error: {e_cmsh}", exc_info=True)
     # Fallback types for type hinting if imports fail

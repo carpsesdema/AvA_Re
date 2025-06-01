@@ -21,7 +21,7 @@ try:
     from core.python_code_assembler import PythonCodeAssembler
     from core.dependency_resolver import DependencyResolver
     from utils import constants
-    from app.llm import prompts as llm_prompts
+    from llm import prompts as llm_prompts
 except ImportError as e_mtc:
     logging.getLogger(__name__).critical(f"MicroTaskCoordinator: Critical import error: {e_mtc}", exc_info=True)
     # Fallback types

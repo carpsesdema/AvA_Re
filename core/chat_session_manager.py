@@ -6,8 +6,8 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 try:
     # Corrected path for models
-    from app.models.chat_message import ChatMessage
-    from app.models.message_enums import MessageLoadingState  # For type hinting if message objects have it
+    from models.chat_message import ChatMessage
+    from models.message_enums import MessageLoadingState  # For type hinting if message objects have it
     from core.event_bus import EventBus  # For emitting app-wide notifications if needed by other modules
 except ImportError as e_csm:
     logging.getLogger(__name__).critical(f"ChatSessionManager: Critical import error: {e_csm}", exc_info=True)
