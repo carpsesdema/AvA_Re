@@ -296,3 +296,31 @@ class BackendConfigManager(QObject):
         """Checks if the backend designated for a specific purpose is actually configured and ready."""
         config = self._purpose_configs.get(purpose_key)
         return config.get("is_actually_configured", False) if config else False
+
+    # --- Convenience Methods for ChatManager Compatibility ---
+    def get_active_chat_temperature(self) -> float:
+        """Get the temperature setting for the active chat backend."""
+        chat_config = self.get_active_config_for_purpose("chat")
+        return chat_config.get("temperature", 0.7) if chat_config else 0.7
+
+    def get_active_chat_backend_id(self) -> str:
+        """Get the active backend ID for chat purpose."""
+        chat_config = self.get_active_config_for_purpose("chat")
+        return chat_config.get("backend_id",
+                               constants.DEFAULT_CHAT_BACKEND_ID) if chat_config else constants.DEFAULT_CHAT_BACKEND_ID  # type: ignore
+
+    def get_active_chat_system_prompt(self) -> Optional[str]:
+        """Get the system prompt for the active chat backend."""
+        chat_config = self.get_active_config_for_purpose("chat")
+        return chat_config.get("system_prompt") if chat_config else None
+
+    def get_active_specialized_backend_id(self) -> str:
+        """Get the active backend ID for specialized coder purpose."""
+        spec_config = self.get_active_config_for_purpose("specialized_coder")
+        return spec_config.get("backend_id",
+                               constants.GENERATOR_BACKEND_ID) if spec_config else constants.GENERATOR_BACKEND_ID  # type: ignore
+
+    def get_active_specialized_model_name(self) -> Optional[str]:
+        """Get the active model name for specialized coder purpose."""
+        spec_config = self.get_active_config_for_purpose("specialized_coder")
+        return spec_config.get("model_name") if spec_config else None

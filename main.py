@@ -195,39 +195,32 @@ class AvaApplicationRunner:
             return 1
 
         logger.info("Starting application event loop...")
-        exit_code = 0
+
         try:
-            # qasync's QEventLoop context manager handles running and closing the loop.
-            with self.async_event_loop:
-                # The loop runs here until app.quit() is called or shutdown is triggered.
-                # We can add a monitor for self._shutdown_requested if needed,
-                # but qasync should handle Qt's quit signals.
-                # self.async_event_loop.run_forever() # This is handled by 'with'
+            # Connect quit signal for graceful shutdown
+            self.qt_app.aboutToQuit.connect(self._on_qt_about_to_quit)
 
-                # Keep the Python part alive while Qt loop runs
-                while not self._shutdown_requested:  # and not self.qt_app.closingDown(): # closingDown might not be reliable here
-                    await asyncio.sleep(0.1)  # Check periodically
-                    if self.qt_app.applicationState() == Qt.ApplicationState.ApplicationQuit:  # More reliable check
-                        logger.info("Qt ApplicationState is ApplicationQuit.")
-                        self._shutdown_requested = True  # Ensure our flag is set
-                        break
-
-                # If loop exited due to external quit, ensure our shutdown is called
-                if not self._shutdown_requested:
-                    logger.info("Event loop exited, ensuring shutdown.")
-                    await self.shutdown_application_async()
-
+            # Start the Qt application - this will block until app.quit() is called
+            exit_code = self.qt_app.exec()
+            logger.info(f"Application event loop finished. Exit code: {exit_code}")
+            return exit_code
 
         except KeyboardInterrupt:
             logger.info("KeyboardInterrupt received. Shutting down...")
             await self.shutdown_application_async()
+            return 0
         except Exception as e_loop:
             logger.critical(f"Unhandled exception in event loop: {e_loop}", exc_info=True)
-            exit_code = 1
-            await self.shutdown_application_async(is_error=True)  # Attempt graceful shutdown even on error
+            await self.shutdown_application_async(is_error=True)
+            return 1
 
-        logger.info(f"Application event loop finished. Exit code: {exit_code}")
-        return exit_code
+    def _on_qt_about_to_quit(self):
+        """Called when Qt is about to quit."""
+        logger.info("Qt aboutToQuit signal received.")
+        self._shutdown_requested = True
+        # Schedule async cleanup
+        if self.async_event_loop and not self.async_event_loop.is_closed():
+            asyncio.ensure_future(self.shutdown_application_async(), loop=self.async_event_loop)
 
     async def shutdown_application_async(self, is_error: bool = False):
         """Performs graceful shutdown of application components."""

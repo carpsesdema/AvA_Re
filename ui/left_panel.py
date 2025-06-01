@@ -53,13 +53,22 @@ class LeftControlPanel(QWidget):
 
     # Display details for backend prefixes in dropdowns
     BACKEND_DISPLAY_DETAILS = {
-        constants.DEFAULT_CHAT_BACKEND_ID: {"prefix": "Gemini",
-                                            "default_models": [constants.DEFAULT_GEMINI_CHAT_MODEL]},  # type: ignore
-        "ollama_chat_default": {"prefix": "Ollama (Chat)", "default_models": [constants.DEFAULT_OLLAMA_CHAT_MODEL]},
-        # type: ignore
-        "gpt_chat_default": {"prefix": "GPT", "default_models": [constants.DEFAULT_GPT_CHAT_MODEL]},  # type: ignore
-        constants.GENERATOR_BACKEND_ID: {"prefix": "Ollama (Gen)",
-                                         "default_models": [constants.DEFAULT_OLLAMA_GENERATOR_MODEL]}  # type: ignore
+        getattr(constants, 'DEFAULT_CHAT_BACKEND_ID', 'gemini_chat_default'): {
+            "prefix": "Gemini",
+            "default_models": [getattr(constants, 'DEFAULT_GEMINI_CHAT_MODEL', 'gemini-1.5-pro-latest')]
+        },
+        "ollama_chat_default": {
+            "prefix": "Ollama (Chat)",
+            "default_models": [getattr(constants, 'DEFAULT_OLLAMA_CHAT_MODEL', 'llama3.1:latest')]
+        },
+        "gpt_chat_default": {
+            "prefix": "GPT",
+            "default_models": [getattr(constants, 'DEFAULT_GPT_CHAT_MODEL', 'gpt-4o')]
+        },
+        getattr(constants, 'GENERATOR_BACKEND_ID', 'ollama_generator_default'): {
+            "prefix": "Ollama (Gen)",
+            "default_models": [getattr(constants, 'DEFAULT_OLLAMA_GENERATOR_MODEL', 'qwen2.5-coder:14b')]
+        }
     }
 
     def __init__(self, chat_manager: ChatManager, parent: Optional[QWidget] = None):
@@ -71,10 +80,11 @@ class LeftControlPanel(QWidget):
             raise TypeError("LeftControlPanel requires a valid ChatManager instance.")
 
         self.chat_manager = chat_manager
-        # Get ProjectManager via ChatManager's BackendConfigManager or directly if CM exposes it.
-        # Assuming ChatManager provides access to ProjectManager via ApplicationOrchestrator.
-        self._project_manager = self.chat_manager.get_project_manager()  # type: ignore
-        self._event_bus = EventBus.get_instance()  # type: ignore
+        # Get ProjectManager via ChatManager
+        self._project_manager = self.chat_manager.get_project_manager()
+        # Get BackendCoordinator via ChatManager - FIXED: Added this missing reference
+        self._backend_coordinator = self.chat_manager._backend_coordinator
+        self._event_bus = EventBus.get_instance()
 
         # Flags to prevent signal loops during programmatic UI updates
         self._is_programmatic_model_change: bool = False
@@ -347,12 +357,29 @@ class LeftControlPanel(QWidget):
 
         self._is_programmatic_model_change = False
 
-        # Load projects and sessions
-        self.load_initial_projects_and_sessions()  # This will handle its own programmatic flags
+        # Load projects and sessions - FIXED: Added this missing method call
+        self.load_initial_projects_and_sessions()
 
         # Initial RAG status update
         self._check_initial_rag_status()
         self.set_panel_enabled_state(not self.chat_manager.is_overall_busy())
+
+    def load_initial_projects_and_sessions(self):
+        """FIXED: Added missing method to load initial projects and sessions"""
+        logger.debug("LCP: Loading initial projects and sessions.")
+        if self._project_manager:
+            try:
+                # Load all projects
+                projects = self._project_manager.get_all_projects()
+                self.populate_projects_list(projects)
+
+                # Load current project's sessions if there is one
+                current_project = self._project_manager.get_current_project()
+                if current_project:
+                    self._update_sessions_list_for_project(current_project.id)
+
+            except Exception as e:
+                logger.error(f"Error loading initial projects and sessions: {e}")
 
     # --- Slot Implementations for UI Element Interactions ---
     @Slot(int)
@@ -524,9 +551,11 @@ class LeftControlPanel(QWidget):
                                                                 "default_models": []})
             prefix = display_details["prefix"]
 
-            # If forcing refresh for a specific backend, or if its models aren't cached/are stale.
-            # The get_available_models_for_backend in BackendCoordinator now handles scheduling async refresh.
-            available_models = self._backend_coordinator.get_available_models_for_backend(backend_id)  # type: ignore
+            # FIXED: Use backend coordinator properly through chat manager
+            if self._backend_coordinator and hasattr(self._backend_coordinator, 'get_available_models_for_backend'):
+                available_models = self._backend_coordinator.get_available_models_for_backend(backend_id)
+            else:
+                available_models = []
 
             if not available_models:  # Use default models from display_details if API fetch yielded none
                 available_models = display_details.get("default_models", [])
@@ -539,8 +568,11 @@ class LeftControlPanel(QWidget):
                                       userData={"backend_id": backend_id, "model_name": model_name_str})
                     any_model_added = True
             else:  # Still no models, show placeholder
-                is_conf = self._backend_coordinator.is_backend_configured(backend_id)  # type: ignore
-                last_err = self._backend_coordinator.get_last_error_for_backend(backend_id)  # type: ignore
+                # FIXED: Use backend coordinator properly
+                is_conf = self._backend_coordinator.is_backend_configured(
+                    backend_id) if self._backend_coordinator else False
+                last_err = self._backend_coordinator.get_last_error_for_backend(
+                    backend_id) if self._backend_coordinator else None
                 ph_text = f"[{prefix}: No models]"
                 if not is_conf:
                     ph_text = f"[{prefix}: Not Configured]"
@@ -551,7 +583,8 @@ class LeftControlPanel(QWidget):
                 any_model_added = True  # Placeholder is an item
 
         if not any_model_added:
-            combo_box.addItem("No LLMs Available", userData={"is_placeholder": True}); combo_box.setEnabled(False)
+            combo_box.addItem("No LLMs Available", userData={"is_placeholder": True})
+            combo_box.setEnabled(False)
         else:
             combo_box.setEnabled(True)
 

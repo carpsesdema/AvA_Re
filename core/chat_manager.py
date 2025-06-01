@@ -86,14 +86,23 @@ class ChatManager(QObject):
         self._chat_router = ChatRouter(parent=self)
 
         # Instantiate complex task coordinators
-        self._plan_and_code_coordinator = PlanAndCodeCoordinator(
-            backend_coordinator=self._backend_coordinator, event_bus=self._event_bus,
-            llm_comm_logger=self._llm_comm_logger, parent=self
-        )
+        # FIXED: Create MicroTaskCoordinator first since PlanAndCodeCoordinator depends on it
         self._micro_task_coordinator = MicroTaskCoordinator(
-            backend_coordinator=self._backend_coordinator, event_bus=self._event_bus,
-            llm_comm_logger=self._llm_comm_logger, parent=self
+            backend_coordinator=self._backend_coordinator,
+            event_bus=self._event_bus,
+            llm_comm_logger=self._llm_comm_logger,
+            parent=self
         )
+
+        # Create PlanAndCodeCoordinator with MicroTaskCoordinator dependency
+        self._plan_and_code_coordinator = PlanAndCodeCoordinator(
+            backend_coordinator=self._backend_coordinator,
+            event_bus=self._event_bus,
+            llm_comm_logger=self._llm_comm_logger,
+            micro_task_coordinator=self._micro_task_coordinator,  # FIXED: Add this dependency
+            parent=self
+        )
+
         self._conversation_orchestrator: Optional['ConversationOrchestrator'] = None  # Injected by AppOrchestrator
 
         # Configure ChatRouter with its handlers
@@ -431,6 +440,19 @@ class ChatManager(QObject):
     def is_overall_busy(self) -> bool:  # Checks major coordinators and BackendCoordinator
         return self._is_any_major_coordinator_busy() or \
             (self._backend_coordinator and self._backend_coordinator.is_any_backend_busy())
+
+    # --- Missing getter methods (potential next issues) ---
+    def get_project_manager(self) -> ProjectManager:
+        """Get the project manager instance"""
+        return self._project_manager
+
+    def get_llm_communication_logger(self) -> Optional[LlmCommunicationLogger]:
+        """Get the LLM communication logger instance"""
+        return self._llm_comm_logger
+
+    def get_all_available_backend_ids(self) -> List[str]:
+        """Get all available backend IDs from backend coordinator"""
+        return self._backend_coordinator.get_all_backend_ids() if self._backend_coordinator else []
 
     # --- Cleanup ---
     def cleanup(self):
