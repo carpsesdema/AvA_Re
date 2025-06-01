@@ -2,7 +2,7 @@
 import logging
 from typing import Optional, Dict, Any
 
-from PySide6.QtCore import Slot, QTimer
+from PySide6.QtCore import Slot, QTimer, QSize, Qt
 from PySide6.QtGui import QFont, QTextCursor, QAction, QIcon, QCloseEvent
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QTextBrowser, QToolBar, QWidget
 
@@ -132,7 +132,15 @@ class LlmTerminalWindow(QDialog):
             if all_logs_html:
                 self._text_browser.setHtml(all_logs_html)  # Set initial content
                 self._maybe_scroll_to_bottom()
-            logger.info(f"Loaded {len(self._llm_logger.get_all_logs())} existing log entries.")
+                # FIXED: Handle missing get_all_logs method gracefully
+                try:
+                    if hasattr(self._llm_logger, 'get_all_logs'):
+                        log_count = len(self._llm_logger.get_all_logs())
+                        logger.info(f"Loaded {log_count} existing log entries.")
+                    else:
+                        logger.info("Loaded existing log entries (count unavailable).")
+                except (AttributeError, TypeError):
+                    logger.info("Loaded existing log entries (count unavailable).")
 
     @Slot(str)
     def add_log_entry(self, formatted_html_log_entry: str):
@@ -259,9 +267,9 @@ class LlmTerminalWindow(QDialog):
 
     def _maybe_scroll_to_bottom(self):
         if self._text_browser and self.scroll_to_bottom_action and self.scroll_to_bottom_action.isChecked():
-            # Scroll to the bottom after a short delay to allow layout to update
-            QTimer.singleShot(0, self._text_browser.verticalScrollBar().setValue,
-                              self._text_browser.verticalScrollBar().maximum())
+            # FIXED: Use lambda to properly call setValue with PySide6
+            QTimer.singleShot(0, lambda: self._text_browser.verticalScrollBar().setValue(
+                self._text_browser.verticalScrollBar().maximum()))
 
     @Slot()
     def _clear_log_display(self):

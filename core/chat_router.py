@@ -72,6 +72,7 @@ class ChatRouter(QObject):
                             specialized_backend_id: str,
                             specialized_model_name: str,
                             specialized_temperature: float,
+                            specialized_system_prompt: Optional[str],  # FIXED: Added missing parameter
                             # Project Context
                             current_project_directory: str,
                             project_name_for_context: Optional[str] = None,

@@ -6,10 +6,10 @@ import sys
 logger = logging.getLogger(__name__)
 
 APP_NAME = "AvA: PySide6 Rebuild"
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.0"
 
 DEFAULT_CHAT_BACKEND_ID = "gemini_chat_default"
-DEFAULT_GEMINI_CHAT_MODEL = "gemini-1.5-pro-latest"
+DEFAULT_GEMINI_CHAT_MODEL = "gemini-2.5-pro-preview-05-06"
 DEFAULT_OLLAMA_CHAT_MODEL = "llama3:latest"
 DEFAULT_GPT_CHAT_MODEL = "gpt-4o"
 
@@ -88,7 +88,7 @@ STYLESHEET_FILENAME = "style.qss"
 BUBBLE_STYLESHEET_FILENAME = "bubble_style.qss"
 UI_DIR_NAME = "ui" # Assuming ui files are in an 'ui' subdirectory of app
 # Corrected path assuming constants.py is in utils/, and ui/ is in app/
-UI_DIR_PATH = os.path.join(APP_BASE_DIR, "app", UI_DIR_NAME)
+UI_DIR_PATH = os.path.join(APP_BASE_DIR, UI_DIR_NAME)
 
 
 STYLE_PATHS_TO_CHECK = [ # Paths to search for the main stylesheet
